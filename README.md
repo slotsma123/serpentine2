@@ -1,27 +1,23 @@
-## needs to be modield for serpentine2
-
-
 ## Introduction
+This is the production version of Serpentine2, which a collection of rules and workflows for NGS data processing.
 
-Serpentine2 is, so far, a collection of rules and workflows for NGS data processing.
-It is in development.
 
 ## Installation
 
 The easiest way to get serpentine is to clone the repository.
 
 ```
-git clone https://github.com/NCI-CCR-GB/serpentine.git
+git clone https://github.com/zhujack/serpentine2.git
 ```
 
 ## Contributing
 
 To contribute to the project, you can:
 
-1. File a [new issue](https://github.com/NCI-CCR-GB/serpentine/issues/new)
-2. [Fork](https://github.com/NCI-CCR-GB/serpentine/fork) the repository, make changes, and then make a pull request.
+1. File a [new issue](https://github.com/zhujack/serpentine2/issues/new)
+2. [Fork](https://github.com/zhujack/serpentine2/fork) the repository, make changes, and then make a pull request.
 
-If you have questions, file a [new issue](https://github.com/NCI-CCR-GB/serpentine/issues/new) and label as a question or [email me](mailto:seandavi@gmail.com).
+If you have questions, file a [new issue](https://github.com/zhujack/serpentine2/issues/new) and label as a question or [email me](mailto:yuelin@gmail.com).
 
 
 ## Roadmap (to be updated)

@@ -1,0 +1,1593 @@
+"""
+Rules for fasta indexing
+
+To use, just include the rules in your workflow
+
+Requires:
+  - picard
+  - samtools
+"""
+
+__author__  = "Sean Davis <http://watson.nci.nih.gov/~sdavis>"
+__license__ = "MIT"
+
+rule fasta_index:
+    input:
+        "{prefix}.{suffix}"
+    output:
+        "{prefix}.{suffix,(fasta|fa)}.fai"
+    params:
+        rulename = "fasta_index",
+        batch="--mem=61g --time=24:00:00"
+    shell:
+        "module load samtools; samtools faidx {input}"
+
+
+rule fasta_dict:
+    input:
+        "{prefix}.{suffix}"
+    output:
+        "{prefix}.{suffix,(fasta|fa)}.dict"
+    params:
+        rulename = "fasta_dict",
+        batch="--mem=61g --time=24:00:00"
+    shell:
+        "module load picard/1.129; "
+        "java -Xmx16g -jar $PICARDJARPATH/picard.jar CreateSequenceDictionary "
+        "REFERENCE={input} "
+        "OUTPUT={output}"
+__author__  = "Johannes Köster (http://johanneskoester.bitbucket.org)"
+__license__ = "MIT"
+
+### bwa.rules
+
+rule bwamem_map:
+    """Map individual units with bwa mem
+
+    This rule uses the reference genome, after index creation,
+    and maps the reads. Read group info is added automatically
+    (LB, SM, PL, and ID).  Output is a coordinate-sorted BAM file.
+    The output file is marked as temp().
+    """
+    input:
+        index = lambda wildcards: SERPENTINE_HOME+"/resources/mapping/bwaindex_"+ config['versions']['bwa'] +"/"+config['reference']+".pac",
+        fastq = lambda wildcards: config["units"][wildcards.unit]
+    output:
+        temp("TEMP/{unit}.unit.bam")
+    version: config['versions']['bwa']
+    params:
+        batch="-c 32 --mem=125g --gres=lscratch:400 --time=24:00:00",
+        sample = lambda wildcards: UNIT_TO_SAMPLE[wildcards.unit],
+        library = lambda wildcards: UNIT_TO_LIBRARY[wildcards.unit],
+        platform = config.get("platform","Illumina"),
+        bwa_index = lambda wildcards: SERPENTINE_HOME + "/resources/mapping/bwaindex_" + config['versions']['bwa'] + "/" + config['reference'],
+        output_prefix = "TEMP/{unit}.unit",
+        rulename = "bwamem_map"
+    log: "TEMP/{unit}.unit.log"
+    threads: 32
+    shell: """
+## no this module in b2
+# module load ea-utils/r822
+
+R1=/lscratch/${{SLURM_JOBID}}/`basename {input.fastq[0]}`
+R2=/lscratch/${{SLURM_JOBID}}/`basename {input.fastq[1]}`
+mcf_log=/lscratch/${{SLURM_JOBID}}/`basename {input.fastq[0]}`.mcf.log
+
+/data/CCRBioinfo/zhujack/source/ea-utils.1.1.2-686/fastq-mcf -C 1000000 -q 2 -p 10 -u -x 20 -o $R1 -o $R2 /home/zhujack/bin/adapters.fa <(gunzip -c {input.fastq[0]}) <(gunzip -c {input.fastq[1]}) > $mcf_log 2>&1
+
+module load fastqc
+fastqc -t {threads} $R1
+fastqc -t {threads} $R2
+
+module load bwa/{version}
+bwa mem -M \
+-R '@RG\tID:{wildcards.unit}\tSM:{params.sample}\tLB:{params.library}\tPL:{params.platform}' \
+-t {threads} {params.bwa_index} $R1 $R2 2> {log} \
+| samtools view -Sbh - \
+| samtools sort -m 30000000000 - {params.output_prefix}
+
+if [ ! -d fastqc/trimmed ]; then
+    mkdir -p fastqc/trimmed
+fi
+mv /lscratch/${{SLURM_JOBID}}/*fastqc.zip /lscratch/${{SLURM_JOBID}}/*fastqc.html $mcf_log fastqc/trimmed/
+"""
+
+# RG="@RG\tID:${sample}\tLB:${sample}\tSM:${sample}\tPL:ILLUMINA"
+# /usr/local/apps/bwa/0.7.10/bwa mem -M -t 32 -R "$RG" $ref ${sample}_R1.fastq.gz ${sample}_R2.fastq.gz >$workdir/${sample}.sam
+# java -Xmx20g  -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar /usr/local/apps/picard/1.119/SortSam.jar INPUT=$workdir/${sample}.sam OUTPUT=$dir/${sample}.bam SORT_ORDER=coordinate
+# samtools index $dir/${sample}.bam
+
+
+rule bwa_index_fasta:
+    """Index fasta input for bwa.
+
+    This rule uses config['references'][config['reference']] to get a specific fasta 
+    file for indexing. The index is created prior to mapping anything.
+    """
+    input: config['references'][config['reference']]
+    output: SERPENTINE_HOME + "/resources/mapping/bwaindex_" + config['versions']['bwa'] + "/{reference}.pac"
+    log: SERPENTINE_HOME + "/resources/mapping/bwaindex_" + config['versions']['bwa'] + "/{reference}.log"
+    version: config['versions']['bwa']
+    params: 
+        rulename = "bwa_index_fasta",
+        batch=" --mem 61g --time=24:00:00",
+        prefix=SERPENTINE_HOME + "/resources/mapping/bwaindex_" + config['versions']['bwa'] + "/{reference}"
+    shell: "module load bwa/{version} && bwa index -p {params.prefix} {input} 2> {log}"
+## novoalign
+
+## novoalign
+
+rule addrg:
+    """Add rd group to novoalign """
+    input:
+        "TEMP/{unit}.novo.bam"
+    output:
+        temp("TEMP/{unit}.unit.bam")
+    version: "1.129"
+    params:
+        rulename = "addrg",
+        batch ="-c 32 --mem=62g",
+        output_prefix = "TEMP/{unit}.novo",
+        sample =lambda wildcards: UNIT_TO_SAMPLE[wildcards.unit],
+        library=lambda wildcards: UNIT_TO_LIBRARY[wildcards.unit],
+        platform_unit='NextSeq',
+        platform=config.get("platform","Illumina")
+    log: "TEMP/{unit}.novo.log"
+    threads: 32
+    shell: """
+module load picard/{version}
+
+java -Xmx16g -jar $PICARDJARPATH/picard.jar AddOrReplaceReadGroups \
+RGID={wildcards.unit} \
+RGLB={params.sample} \
+RGPL={params.platform} \
+RGPU={params.platform_unit} \
+RGSM={params.sample} \
+I={input} \
+O={output} > {log} 2>&1
+"""
+
+# sample =lambda wildcards: UNIT_TO_SAMPLE[wildcards.unit],
+# library=lambda wildcards: UNIT_TO_LIBRARY[wildcards.unit],
+# platform=config.get("platform","Illumina"),
+# r"-R '@RG\tID:{wildcards.unit}\t"
+# r"SM:{params.sample}\tLB:{params.library}\tPL:{params.platform}' "
+# "-t {threads} {params.bwa_index} {input.fastq}  2> {log} "     
+
+
+rule novoalign:
+    """Map individual units with novoalign
+
+    This rule uses the reference genome, after index creation,
+    and maps the reads. Read group info is added automatically
+    (LB, SM, PL, and ID).  Output is a coordinate-sorted BAM file.
+    The output file is marked as temp().
+    """
+    input:
+        index=lambda wildcards: SERPENTINE_HOME+"/resources/mapping/novoindex_"+ config['versions']['novocraft'] +"/"+config['reference']+".index",
+        fastq=lambda wildcards: config["units"][wildcards.unit]
+    output:
+        temp("TEMP/{unit}.novo.bam")
+    version: config['versions']['novocraft']
+    params:
+        rulename = "novoalign",
+        batch ="-c 32 --mem=125g --time=1-12:00:00",
+        output_prefix = "TEMP/{unit}.novo"
+    log: "TEMP/{unit}.novo.log"
+    threads: 32
+    shell: """
+module load novocraft/{version}
+novoalign -d {input.index} \
+-f {input.fastq} \
+-a -k -o Sync \
+-c {threads} -o SAM \
+| samtools view -Sbh - \
+| samtools sort -m 30000000000 - {params.output_prefix} \
+> {log} 2>&1
+"""
+
+
+rule novo_index_fasta:
+    """Index fasta input for novo.
+
+    This rule uses config['references'][config['reference']] to get a specific fasta 
+    file for indexing. The index is created prior to mapping anything.
+    """
+    input: config['references'][config['reference']]
+    output: SERPENTINE_HOME + "/resources/mapping/novoindex_" + config['versions']['novocraft'] + "/{reference}.index"
+    log: SERPENTINE_HOME + "/resources/mapping/novoindex_" + config['versions']['novocraft'] + "/{reference}.log"
+    version: config['versions']['novocraft']
+    params: 
+        rulename = "novo_index_fasta",
+        batch=""
+    shell: """
+module load novocraft/{version}
+novoindex -m {output} {input} > {log} 2>&1
+"""
+
+
+
+__author__  = "Sean Davis & Jack Zhu"
+__license__ = "MIT"
+
+def _knownIndels_to_GATK(known):
+    """Convert a list of file locations to a format for the GATK command line"""
+    try:
+        return(' '.join(["-known " + x for x in known]))
+    except KeyError:
+        return(' ')
+
+rule bamtdf:
+    input:
+        bam="{base}/bam/{sample}.final.bam",
+        bai="{base}/bam/{sample}.final.bam.bai",
+    output: 
+        "{base}/bam/{sample}.final.bam.tdf"
+    params: 
+        rulename = "bamtdf",
+        batch="-c 32 --mem=62g",
+        genome = config['reference'].replace("human_g1k_v37", "1kg_v37").replace("ucsc.hg19", "hg19")
+    version: "2.3.31"
+    log: "{base}/bam/{sample}.final.bam.tdf.log"
+    shell: """
+module load igvtools/{version}
+${{IGVTOOLSHOME}}/igvtools \
+count {input.bam} {output} {params.genome} > {log} 2>&1
+"""
+
+rule gatk_print_reads:
+    input:
+        bam = "TEMP/{sample}.realigned.bam",
+        bai = "TEMP/{sample}.realigned.bam.bai",
+        recal_table = "TEMP/{sample}.recal_table",
+        reference = config['references'][config['reference']]
+    output:
+        bam="{base}/{sample}.final.bam",
+        bai="{base}/{sample}.final.bam.bai"
+    params:
+        rulename = "gatk_print_reads",
+        batch = "-c 32 --mem=62g --time=2-00:00:00 --gres=lscratch:400",
+        tmpBai = "{base}/{sample}.final.bai"
+    threads: 32
+    version: config['versions']['GATK']
+    log: "{base}/{sample}.final.bam.log"
+    shell: """
+module load GATK/{version}
+
+java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+-T PrintReads \
+-nct {threads} \
+-I {input.bam} \
+-R {input.reference} \
+-BQSR {input.recal_table} \
+-o {output.bam} \
+-log {log} 
+
+if [ -f {params.tmpBai} ];then
+    mv {params.tmpBai} {output.bai}
+fi
+"""
+
+rule gatk_base_recalibrator:
+    input:
+        bam = "TEMP/{sample}.realigned.bam",
+        bai = "TEMP/{sample}.realigned.bam.bai",
+        dbsnp = config['resources']['dbsnp'],
+        reference = config['references'][config['reference']]
+    output:
+        temp("TEMP/{sample}.recal_table")
+    params:
+        rulename = "gatk_base_recalibrator",
+        batch = "-c 32 --mem=62g --time=24:00:00 --gres=lscratch:400"
+    threads: 32
+    version: config['versions']['GATK']
+    log: "TEMP/{sample}.recal_table.log"
+    shell: """
+module load GATK/{version}
+
+java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+-T BaseRecalibrator \
+-nct {threads} \
+-I {input.bam} \
+-R {input.reference} \
+-knownSites {input.dbsnp} \
+-o {output} \
+-log {log} 
+"""
+
+rule gatk_realigner_target_creator:
+    input:
+        bam = "TEMP/{sample}.md.bam",
+        bai = "TEMP/{sample}.md.bam.bai",
+        known = config['resources']['knownIndels'],
+        reference = config['references'][config['reference']]
+    output: 
+        temp("TEMP/{sample}.md.intervals")
+    params:
+        rulename = "gatk_realigner_target_creator",
+        batch = "-c 32 --mem=31g --time=24:00:00 --gres=lscratch:400"
+    threads: 8
+    version: config['versions']['GATK']
+    log: "TEMP/{sample}.md.intervals.log"
+    run:
+        knownIndels = _knownIndels_to_GATK(input.known)
+        shell("""
+module load GATK/{version}
+
+java -Xmx31g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+-T RealignerTargetCreator \
+-I {input.bam} \
+-R {input.reference} \
+{knownIndels} \
+-nt {threads} \
+-o {output} \
+-log {log} 
+""")
+
+rule gatk_indel_realigner:
+    input:
+        bam = "TEMP/{sample}.md.bam",
+        bai = "TEMP/{sample}.md.bam.bai",
+        known = config['resources']['knownIndels'],
+        intervals = "TEMP/{sample}.md.intervals",
+        reference = config['references'][config['reference']]
+    output:
+        temp("TEMP/{sample}.realigned.bam")
+    params:
+        rulename = "gatk_indel_realigner",
+        batch = "-c 32 --mem=62g --time=24:00:00 --gres=lscratch:400"
+    threads: 32
+    version: config['versions']['GATK']
+    run:
+        knownIndels = _knownIndels_to_GATK(input.known)
+        shell("""
+module load GATK/{version}
+
+java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+-T IndelRealigner \
+-I {input.bam} \
+-R {input.reference} \
+{knownIndels} \
+--targetIntervals {input.intervals} \
+-o {output}
+""")
+
+rule index_bam:
+    threads: 32
+    input: 
+        "{base}.bam"
+    output: 
+        "{base}.bam.bai"
+    params: 
+        rulename = "index_bam",
+        batch=""
+    version: "0.5.7"
+    shell: """
+module load sambamba/{version}
+sambamba index -t {threads} {input}
+
+module load samtools
+samtools index {input}
+"""
+
+
+rule mvDup:
+    threads: 1
+    input: "TEMP/{sample}.final.bam.dupmetrics"
+    output: "{base}/qc/{sample}.final.bam.dupmetrics"
+    params: 
+        rulename = "mvDup",
+        batch=""
+    version: ""
+    shell: """
+mv {input} {output}
+"""
+
+rule markdups:
+    threads: 1
+    input: "TEMP/{sample}.sample.bam",
+           "TEMP/{sample}.sample.bam.bai"
+    output: bam=temp("TEMP/{sample}.md.bam"),
+            metrics=temp("TEMP/{sample}.final.bam.dupmetrics")
+    params: 
+        rulename = "markdups",
+        batch="-c 32 --mem=62g --gres=lscratch:400 --time=24:00:00",
+        qc_dir = lambda wildcards: "SUBJECT/{subject}/{sample}/{reference}.{aligner}/qc".format(subject=SAMPLE_TO_SUBJECT[wildcards.sample], sample=wildcards.sample,  reference=config['reference'], aligner=config['aligner'] )
+    log: "TEMP/{sample}.md.bam.log"
+    version: "1.119"
+    shell: """
+module load picard/{version}
+
+java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $PICARDJARPATH/MarkDuplicates.jar \
+AS=true M={output.metrics} \
+O={output.bam} \
+I={input[0]} \
+REMOVE_DUPLICATES=false \
+VALIDATION_STRINGENCY=SILENT \
+> {log} 2>&1
+
+# if [ ! -d {params.qc_dir} ]; then
+#     mkdir -p {params.qc_dir}
+# fi
+#
+# cp {output.metrics} {params.qc_dir}
+
+"""
+
+rule mergeBam2Sample:
+    params:
+        rulename = "mergeBam2Sample",
+        batch="-c 32 --mem=32g"
+    input: lambda wildcards: expand("TEMP/{unit}.unit.bam", \
+                             unit = SAMPLE_TO_UNIT[wildcards.sample])
+    output:
+        temp("TEMP/{sample}.sample.bam")
+    log: "TEMP/{sample}.sample.bam.log"
+    threads: 32
+    version: "1.129"
+    run:
+        cmd = """module load picard/1.129 && java -Xmx31g -jar $PICARDJARPATH/picard.jar MergeSamFiles AS=true USE_THREADING=true VALIDATION_STRINGENCY=SILENT {0}""".format(' '.join(['I={0}'.format(i) for i in input]))
+        cmd = cmd + " O={output} > {log} 2>&1"
+        print(cmd)
+        shell(cmd,shell=True)
+
+
+
+
+"""
+rulues for generating QC metrics and summarizing QC metrics
+"""
+
+rule qcSum_hotspot:
+    input: expand("{metricsBase}.{metricsType}", metricsBase=metricsBases, metricsType=['hotspot.depth'])
+    output: "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/hotspotCoverage.txt"
+    params:
+        rulename = "qcSum_hotspot",
+        batch="",
+        metricsPatterns=lambda wc: ','.join(metricsBases),
+        outDir="STUDY/" + config['reference'] + "." + config['aligner'] + "/qc"
+    run:
+        R("""
+Files <- unlist(strsplit("{input}", ' '))
+print(Files)
+hotspots.coverage <- read.delim(Files[1], colClasses=c("character", "integer","integer","character","character","NULL","NULL","NULL","NULL"), as.is=T, header=F)
+
+names(hotspots.coverage) <- c('chr', 'start', 'end', 'MyCG_Gene', 'MyCG_Codon')
+
+for ( f in Files ) {{
+    c1 <- read.delim(f, colClasses=c("NULL", "NULL","NULL","NULL","NULL","integer","NULL","NULL","NULL"), as.is=T, header=F)
+    names(c1) <-  sub('.final.bam.hotspot.depth', '', basename(f))
+    hotspots.coverage <- cbind(hotspots.coverage, c1)
+}}
+
+write.table(hotspots.coverage , file="{output}", row.names = F, quote=F, sep='\t')
+""")
+
+
+
+rule hotspotCov:
+    input:
+        bam="{base}/bam/{sample}.final.bam"
+    output:
+        "{base}/qc/{sample}.final.bam.hotspot.depth"
+    params:
+        rulename = "hotspotCov",
+        batch="-c 6 --mem=16g --time=04:00:00",
+        hotspot_intervals = config['hotspot_intervals'],
+    version: "2.22.0"
+    shell: """
+module load samtools bedtools/{version}
+samtools view -hF 0x400 -q 30 {input} \
+| samtools view -ShF 0x4 - \
+| samtools view -SuF 0x200 - \
+| bedtools coverage -abam - \
+-b {params.hotspot_intervals} \
+> {output}
+"""
+
+
+
+
+rule qcSum:
+    input: expand("{metricsBase}.{metricsType}", metricsBase=metricsBases, metricsType=['coverage','summetrics','dupmetrics','quality_distribution_metrics','hsmetrics'])
+    output: METRICS_summaries
+    params: 
+        rulename = "qcSum",
+        batch="",
+        metricsPatterns=lambda wc: ','.join(metricsBases),
+        outDir="STUDY/" + config['reference'] + "." + config['aligner'] + "/qc"
+    version: "3.2.0_gcc-4.4.7"
+    log: METRICS_summaries + ".log"
+    shell: """
+module load R/{version} 
+
+do_qcSummaryFiles.R \
+-I {params.metricsPatterns} \
+-O {params.outDir} \
+-T coverage,dupmetrics,summetrics,hsmetrics,qscoremetrics \
+> {log} 2>&1
+"""
+
+
+rule DepthOfCoverage:
+    input: BAMS
+    output: "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/DepthOfCoverage"
+    params: 
+        rulename = "DepthOfCoverage",
+        batch="-c 32 --mem=62g --gres=lscratch:400 --time=2-00:00:00", 
+        inBams=' '.join(["-I " + i for i in BAMS]),
+        reference = config['references'][config['reference']],
+        targets_interval_list = "/data/CCRBioinfo/public/serpentine_resources/design/enGene.cleaned.sorted.cds.hg19.merged.bed"
+    threads: 32
+    log: "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/DepthOfCoverage.log"
+    version:  config['versions']['GATK']
+    shell: """
+module load GATK/{version}
+
+java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+-T DepthOfCoverage \
+-R {params.reference} \
+{params.inBams} \
+-L {params.targets_interval_list} \
+-nct {threads} \
+-ct 1 -ct 10 -ct 20 \
+-o {output} \
+-log {log}
+"""
+
+rule DiagnoseTargets:
+    input: BAMS
+    output: "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/DiagnoseTargets.vcf"
+    threads: 32
+    params: 
+        rulename = "DiagnoseTargets",
+        batch="-c 32 --mem=125g --gres=lscratch:400 --time=2-00:00:00", 
+        inBams=' '.join(["-I " + i for i in BAMS]),
+        reference = config['references'][config['reference']],
+        targets_interval_list = "/data/CCRBioinfo/public/serpentine_resources/design/enGene.cleaned.sorted.cds.hg19.merged.bed"
+    log: "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/DiagnoseTargets.vcf.log"
+    version: config['versions']['GATK']
+    shell: """
+module load  GATK/{version}
+
+java -Xmx125g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+-jar ${{GATK_HOME}}/GenomeAnalysisTK.jar \
+-T DiagnoseTargets \
+-R {params.reference} \
+{params.inBams} \
+-L {params.targets_interval_list} \
+-o {output} \
+-log {log}
+"""
+
+
+# rule fastqcSum:
+#     """
+#     summarize fastqc at different levels for comparizon purpose
+#     """
+#     input:
+#         FASTQS
+#     output:
+#         "STUDY/summary.fastqc.txt"
+#     params:
+#         batch = '-l nodes=1:gpfs'
+#     version: ""
+#     log: "STUDY/summary.fastqc.log"
+#     threads: 8
+#     shell:
+# """
+# ...
+# """
+
+## old rule
+# rule fastqc:
+#     """
+#     fastqc data files will be saved to the same dir as the fastq files
+#     """
+#     input:
+#         "{prefix}.fastq.gz"
+#     output:
+#         "{prefix}_fastqc.zip"
+#     params:
+#         batch = '-l nodes=1:gpfs -q ccr'
+#     version: "0.11.2"
+#     log: "{prefix}_fastqc.log"
+#     threads: 8
+#     shell: """
+# module load fastqc/{version}
+# fastqc {input} > {log} 2>&1
+# """
+
+
+rule fastqc:
+    """
+    fastqc data files will be saved to the same dir as the fastq files
+    """
+    input: lambda wildcards: fqc2fq[wildcards.base]
+    output: "fastqc/{base}_fastqc.zip"
+    params: 
+        rulename = "fastqc",
+        batch = '-c 32 --mem=62g'
+    version: "0.11.2"
+    log: "fastqc/log/{base}_fastqc.log"
+    threads: 32
+    shell: """
+module load fastqc/{version}
+fastqc -t {threads} -o fastqc {input} > {log} 2>&1
+"""
+
+rule multiMetrics:
+    input: 
+        bam="{base}/bam/{sample}.final.bam",
+        bai="{base}/bam/{sample}.final.bam.bai",
+        reference = config['references'][config['reference']]
+    output:
+        "{base}/qc/{sample}.final.bam.summetrics",
+        "{base}/qc/{sample}.final.bam.insert_size_metrics",
+        "{base}/qc/{sample}.final.bam.quality_distribution_metrics",
+        "{base}/qc/{sample}.final.bam.quality_by_cycle_metrics"
+    params: 
+        rulename = "multiMetrics",
+        batch="-c 32 --mem=32g",
+        outputBase="{base}/qc/{sample}.final.bam",
+        aligner=config['aligner'],
+        reference=config['reference']
+    threads: 32
+    log: "{base}/qc/{sample}.final.bam.multiMetrics.log"
+    version: "1.129"
+    run:
+        shell("""
+module load picard/{version} R
+
+java -Xmx32g -jar $PICARDJARPATH/picard.jar CollectMultipleMetrics \
+REFERENCE_SEQUENCE={input.reference} \
+VALIDATION_STRINGENCY=SILENT \
+INPUT={input.bam} \
+OUTPUT={params.outputBase} \
+PROGRAM=CollectAlignmentSummaryMetrics \
+PROGRAM=CollectInsertSizeMetrics \
+PROGRAM=QualityScoreDistribution \
+PROGRAM=MeanQualityByCycle \
+PROGRAM=CollectBaseDistributionByCycle \
+> {log} 2>&1
+
+if [ -f {params.outputBase}.alignment_summary_metrics ];then
+    mv {params.outputBase}.alignment_summary_metrics {output[0]}
+fi
+# ln -fs ../../{output[0]} STUDY/{params.reference}.{params.aligner}/qc/{wildcards.sample}.final.bam.summetrics
+""")
+
+rule flagstat:
+    input: 
+        bam="{base}/bam/{sample}.final.bam",
+        bai="{base}/bam/{sample}.final.bam.bai"
+    output:
+        "{base}/qc/{sample}.final.bam.flagstat"
+    params:
+        rulename = "flagstat",
+        batch="-c 32 --mem=31g"
+    log: "{base}/qc/{sample}.final.bam.flagstat.log"
+    version: "0.1.19"
+    shell: """
+module load samtools/{version}
+samtools flagstat {input.bam} > {output} 2> {log}
+"""
+
+rule bamTools:
+    input: 
+        bam="{base}/bam/{sample}.final.bam",
+        bai="{base}/bam/{sample}.final.bam.bai"
+    output:
+        "{base}/qc/{sample}.final.bam.coverage"
+    params:
+        rulename = "bamTools",
+        batch="-c 32 --mem=62g",
+        outDir="{base}/qc",
+        target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]]
+    log: "{base}/qc/{sample}.final.bam.coverage.log"
+    threads: 32
+    version: "Thu Jun 12 13:39:54 EDT 2014 on biowulf.nih.gov"
+    shell: """
+/home/zhujack/bin/bamTools coverage \
+-overwrite -onlystats -nomerge \
+{params.target_intervals} {output} {input.bam} \
+> {log} 2>&1
+"""
+
+
+# rule sumDepth:
+#     input:
+#         "{base}/qc/{sample}.final.bam.depth"
+#     output:
+#         "{base}/qc/{sample}.final.bam.baseCoverageByTranscript.txt"target_intervals
+#     params:
+#         batch="-l nodes=1:gpfs ",
+#         outDir="{base}/qc",
+#     threads: 32
+#     version: ""
+#     shell: """
+# module load R/devel
+# /home/zhujack/bin/do_sumDepth.R -f {input} -o {params.outDir}
+# """
+
+
+rule readDepth:
+    input: 
+        bam="{base}/bam/{sample}.final.bam",
+        bai="{base}/bam/{sample}.final.bam.bai"
+    output:
+        "{base}/qc/{sample}.final.bam.depth"
+    params:
+        rulename = "readDepth",
+        batch="-c 16 --mem=31g",
+        outDir="{base}/qc",
+        target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]]
+    log: "{base}/qc/{sample}.final.bam.depth.log"
+    threads: 16
+    version: "2.24.0"
+    shell: """
+module load bedtools/{version} R
+/home/zhujack/bin/readDepth.sh {input.bam} {params.target_intervals} {params.outDir} > {log} 2>&1
+
+"""
+
+    # output:
+    #     "{base}/qc/{sample}.final.bam.depth",
+    #     "{base}/qc/{sample}.final.bam.depth.depth_avgByGene.txt"
+
+
+
+rule bamqc:
+    input: 
+        bam="{base}/bam/{sample}.final.bam",
+        bai="{base}/bam/{sample}.final.bam.bai"
+    output:
+        "{base}/qc/bamqc/{sample}.final.bam.qualimapReport.html"
+    params:
+        rulename = "bamqc",
+        batch="-c 32 --mem=62g",
+        outDir="{base}/qc/bamqc",
+        target_intervals_gff=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]].replace('.bed', '.gff')
+    log: "{base}/qc/bamqc/{sample}.final.bam.qualimapReport.log"
+    threads: 32
+    version: "2.1.1"
+    shell: """
+module load qualimap/{version}
+export DISPLAY=:0
+
+qualimap bamqc -c \
+-bam {input.bam} \
+-outdir {params.outDir} \
+-gff {params.target_intervals_gff} \
+-nt {threads} \
+--java-mem-size=60G \
+> {log} 2>&1
+
+if [ -f "{params.outDir}/qualimapReport.html" ]; then
+    mv {params.outDir}/qualimapReport.html {output}
+fi
+
+"""
+
+
+rule targetIntervals:
+    input: 
+        bam="{base}/bam/{sample}.final.bam",
+        bai="{base}/bam/{sample}.final.bam.bai",
+        reference = config['references'][config['reference']]
+    output:
+        bam_probe_intervals = temp("{base}/qc/{sample}.final.bam.probe.intervals"),
+        bam_target_intervals = temp("{base}/qc/{sample}.final.bam.target.intervals")
+    params:
+        rulename = "targetIntervals",
+        batch="",
+        target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]],
+        probe_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]].replace(".target.", ".design.")
+    log: "{base}/qc/{sample}.final.bam.probe.intervals.log"
+    version: "0.1.19"
+    shell: """
+module load samtools/{version}
+cat <(samtools view -H {input.bam}) <(gawk '{{print $1 "\t" $2+1 "\t" $3 "\t+\tinterval_" NR}}' {params.probe_intervals} )> {output.bam_probe_intervals} 2>> {log}
+
+cat <(samtools view -H {input.bam}) <(gawk '{{print $1 "\t" $2+1 "\t" $3 "\t+\tinterval_" NR}}' {params.target_intervals} )> {output.bam_target_intervals} 2>> {log}
+"""
+
+
+rule hsMetrics:
+    input:
+        bam="{base}/bam/{sample}.final.bam",
+        bam_probe_intervals = "{base}/qc/{sample}.final.bam.probe.intervals",
+        bam_target_intervals = "{base}/qc/{sample}.final.bam.target.intervals",
+        reference = config['references'][config['reference']]
+    output:
+        "{base}/qc/{sample}.final.bam.hsmetrics"
+    params: 
+        rulename = "hsMetrics",
+        batch="-c 32 --mem=32g",
+        ref_name = config['reference'],
+        aligner=config['aligner']
+    log: "{base}/qc/{sample}.final.bam.hsmetrics.log"
+    version: "1.129"
+    shell: """
+module load picard/{version}
+
+java -Xmx31g -jar $PICARDJARPATH/picard.jar CalculateHsMetrics \
+BAIT_INTERVALS={input.bam_probe_intervals} \
+TARGET_INTERVALS={input.bam_target_intervals} \
+INPUT={input.bam} \
+OUTPUT={output} \
+METRIC_ACCUMULATION_LEVEL=ALL_READS \
+REFERENCE_SEQUENCE={input.reference} \
+QUIET=true  \
+VALIDATION_STRINGENCY=SILENT \
+> {log} 2>&1
+
+"""
+#ln -fs {output} STUDY/{params.ref_name}.{params.aligner}/qc/{wildcards.sample}.final.bam.hsmmetrics
+
+
+# ##########################################################################
+# ## hsMetrics commands
+# module load picard/1.119
+# module load samtools/0.1.19
+#
+#
+# target_i=/data/CCRBioinfo/public/serpentine_resources/design/Agilent_SureSelect_Killian_Version4.target.hg19.merged.bed
+# design_i=/data/CCRBioinfo/public/serpentine_resources/design/Agilent_SureSelect_Killian_Version4.design.hg19.merged.bed
+#
+#
+# for bam in *Panel.final.bam
+# do
+# cat <(samtools view -H ${bam}) <(gawk '{{print $1 "\t" $2+1 "\t" $3 "\t+\tinterval_" NR}}' $design_i )> ${bam}.intervals
+# cat <(samtools view -H ${bam}) <(gawk '{{print $1 "\t" $2+1 "\t" $3 "\t+\tinterval_" NR}}' $target_i )> ${bam}.intervals.target
+#
+# java -Xmx16g -jar ${PICARDJARPATH}/CalculateHsMetrics.jar \
+# BAIT_INTERVALS=${bam}.intervals \
+# TARGET_INTERVALS=${bam}.intervals.target \
+# INPUT=${bam} \
+# OUTPUT=${bam}.hsmetrics \
+# METRIC_ACCUMULATION_LEVEL=ALL_READS \
+# REFERENCE_SEQUENCE=/data/Clinomics/Ref/ucsc.hg19.fasta \
+# QUIET=true  \
+# VALIDATION_STRINGENCY=SILENT
+# done
+#
+#
+#
+# module load picard/1.119
+# module load samtools/0.1.19
+#
+# target_i=/data/CCRBioinfo/public/serpentine_resources/design/enGene.cleaned.sorted.cds.hg19.merged.bed
+# design_i=/data/CCRBioinfo/public/serpentine_resources/design/Agilent_SureSelect_Clinical_Research_Exome.design.hg19.merged.bed
+#
+# for bam in *Exome.final.bam
+# do
+# cat <(samtools view -H ${bam}) <(gawk '{{print $1 "\t" $2+1 "\t" $3 "\t+\tinterval_" NR}}' $design_i )> ${bam}.intervals
+# cat <(samtools view -H ${bam}) <(gawk '{{print $1 "\t" $2+1 "\t" $3 "\t+\tinterval_" NR}}' $target_i )> ${bam}.intervals.target
+#
+# java -Xmx16g -jar ${PICARDJARPATH}/CalculateHsMetrics.jar \
+# BAIT_INTERVALS=${bam}.intervals \
+# TARGET_INTERVALS=${bam}.intervals.target \
+# INPUT=${bam} \
+# OUTPUT=${bam}.hsmetrics \
+# METRIC_ACCUMULATION_LEVEL=ALL_READS \
+# REFERENCE_SEQUENCE=/data/Clinomics/Ref/ucsc.hg19.fasta \
+# QUIET=true  \
+# VALIDATION_STRINGENCY=SILENT
+# done
+
+
+
+## pindel
+rule pindel:
+    input: 
+        bam="{base}/bam/{sample}.final.bam",
+        bai="{base}/bam/{sample}.final.bam.bai",
+        insertSize="{base}/qc/{sample}.final.bam.insert_size_metrics",
+        reference = config['references'][config['reference']]
+    output:
+        outputPindel=["{base}/pindel/{sample}.pindel.raw_LI",
+            "{base}/pindel/{sample}.pindel.raw_TD", 
+            "{base}/pindel/{sample}.pindel.raw_INV",
+            "{base}/pindel/{sample}.pindel.raw_BP",
+            "{base}/pindel/{sample}.pindel.raw_SI",
+            "{base}/pindel/{sample}.pindel.raw_D",
+            "{base}/pindel/{sample}.pindel.raw_CloseEndMapped"]
+    params: 
+        rulename = "pindel",
+        batch="-c 32 --mem=62g --time=24:00:00", 
+        pindelBase="{base}/pindel/{sample}.pindel.raw",
+        configPindel="{base}/pindel/{sample}.pindel.txt"
+    log: "{base}/pindel/{sample}.pindel.raw.log"
+    threads: 32
+    version: "0.2.5a8"
+    shell: """
+module load pindel/{version}
+insertSize=`head -8 {input.insertSize} | tail -1 | cut -f1`
+if [ $insertSize -lt 250 ];then
+    insertSize=250
+fi
+echo \"{input.bam} $insertSize {wildcards.sample}\" > {params.configPindel}
+
+pindel \
+-s -k -l \
+-T {threads} \
+-f {input.reference} \
+-i {params.configPindel} \
+-c ALL \
+-o {params.pindelBase} \
+-L {log}
+"""  
+
+# -j /data/CCRBioinfo/zhujack/snake/hg19_chr_co.bed \
+
+
+rule pindel2vcf:
+    input: 
+        outputPindel="{base}/pindel/{sample}.pindel.raw_D",
+        reference = config['references'][config['reference']]
+    output:
+        "{base}/pindel/{sample}.pindel.raw.vcf"
+    params: 
+        rulename = "pindel2vcf",
+        batch="-c 16 --mem=61g",
+        pindelBase="{base}/pindel/{sample}.pindel.raw",
+        reference = config['reference']   
+    log: "{base}/pindel/{sample}.pindel2vcf.log"
+    threads: 16
+    version: "0.2.5a8"
+    shell: """
+module load pindel/{version}
+
+pindel2vcf \
+-e 3 -co 100 \
+-v {output} \
+-P {params.pindelBase} \
+-r {input.reference} \
+-R {params.reference} \
+-d $(date +"%Y%m%d") \
+-G \
+> {log} 2>&1
+"""
+
+## platypus
+rule platypus:
+    input: bam="{base}/bam/{sample}.final.bam",
+           bai="{base}/bam/{sample}.final.bam.bai",
+           reference = config['references'][config['reference']]
+    output: "{base}/platypus/{sample}.platypus.raw.vcf"
+    params: 
+        rulename = "platypus",
+        batch="-c 32 --mem=62g --gres=lscratch:4 --time=2-00:00:00",
+        target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]]
+    threads: 32
+    version: "0.8.1"
+    log: "{base}/platypus/{sample}.platypus.log"
+    shell: """
+module load platypus/{version}
+
+gawk '{{print $1 ":" $2 "-" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.txt
+
+platypus callVariants \
+--nCPU={threads} \
+--bufferSize=1000000 \
+--maxReads=100000000 \
+--bamFiles={input.bam} \
+--regions=/lscratch/${{SLURM_JOBID}}/target_intervals.txt \
+--output={output} \
+--refFile={input.reference} \
+--logFileName={log}
+"""  
+
+
+## unifiedgenotyper
+rule UnifiedGenotyper:
+    input: bam="{base}/bam/{sample}.final.bam",
+           bai="{base}/bam/{sample}.final.bam.bai",
+           reference = config['references'][config['reference']]
+    output: 
+        "{base}/unifiedgenotyper/{sample}.unifiedgenotyper.raw.vcf"
+    params: 
+        rulename = "UnifiedGenotyper",
+        batch="-c 32 --mem=62g --gres=lscratch:400 --time=24:00:00",
+        dbsnp=config["resources"]["dbsnp"],
+        target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]]
+    log: "{base}/unifiedgenotyper/{sample}.unifiedgenotyper.raw.vcf.log"
+    threads: 32
+    version: config['versions']['GATK']
+    shell: """
+## convert to 0-based coordinates
+gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.bed
+
+module load GATK/{version}
+
+java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+-nt {threads} \
+-rf BadCigar \
+-glm BOTH \
+-T UnifiedGenotyper \
+-R {input.reference} \
+-I {input.bam} \
+-L /lscratch/${{SLURM_JOBID}}/target_intervals.bed \
+-o {output} \
+--dbsnp {params.dbsnp} \
+-mbq 20 \
+-rf MappingQuality -mmq 30 \
+-log {log}
+"""  
+
+
+## haplotypecaller
+rule HaplotypeCaller:
+    input: bam="{base}/bam/{sample}.final.bam",
+           bai="{base}/bam/{sample}.final.bam.bai",
+           reference = config['references'][config['reference']]
+    output: 
+        "{base}/haplotypecaller/{sample}.haplotypecaller.raw.vcf"
+    params: 
+        rulename = "HaplotypeCaller",
+        batch="-c 32 --mem=62g --gres=lscratch:400 --time=2-00:00:00",
+        dbsnp=config["resources"]["dbsnp"],
+        target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]]
+    log: "{base}/haplotypecaller/{sample}.haplotypecaller.raw.vcf.log"
+    threads: 32
+    version: config['versions']['GATK']
+    shell: """
+## convert to 0-based coordinates
+gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.bed
+
+module load GATK/{version}
+java -Xmx61g -Djava.io.tmpdir=/lscratch/$SLURM_JOBID -jar $GATK_JAR \
+-T HaplotypeCaller \
+-R {input.reference} \
+-I {input.bam} \
+-L /lscratch/${{SLURM_JOBID}}/target_intervals.bed \
+-o {output} \
+--dbsnp {params.dbsnp} \
+-mbq 20 \
+-mmq 30 \
+-log {log}
+"""  
+
+
+## freebayes
+rule freebayes:
+    input: bam="{base}/bam/{sample}.final.bam",
+           bai="{base}/bam/{sample}.final.bam.bai",
+           reference = config['references'][config['reference']]
+    output: "{base}/freebayes/{sample}.freebayes.raw.vcf"
+    params: 
+        rulename = "freebayes",
+        batch="-c 32 --mem=62g --gres=lscratch:4 --time=24:00:00",
+        target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]]
+    log: "{base}/freebayes/{sample}.freebayes.raw.vcf.log"
+    version: "0.9.21"
+    run:
+        shell("""
+## convert to 0-based coordinates
+gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.bed
+
+module load freebayes/{version}
+freebayes -f {input.reference} \
+--haplotype-length 50 \
+-b {input.bam} \
+-v {output} \
+> {log} 2>&1
+
+## only on target regions
+module load vcftools/0.1.12b
+vcftools --vcf {output} --bed /lscratch/${{SLURM_JOBID}}/target_intervals.bed --out {output} --recode --keep-INFO-all
+
+mv {output}.recode.vcf {output}
+
+## nor working
+# -t /lscratch/${{SLURM_JOBID}}/target_intervals.bed
+""")
+
+
+
+
+
+## somatic variants
+rule MuTect:
+    input: 
+        lambda wildcards: somaticPairs[wildcards.somaticPair],
+        reference = config['references'][config['reference']]
+    output: 
+        call_stats="{anything}/mutect/{somaticPair}.mutect.call_stats.txt", 
+        coverage="{anything}/mutect/{somaticPair}.mutect.coverage.wig.txt",
+        vcf="{anything}/mutect/{somaticPair}.mutect.raw.vcf"
+    params: 
+        rulename = "MuTect",
+        batch="-c 32 --mem=62g --gres=lscratch:400 --time=1-12:00:00",
+        dbsnp=config["resources"]["dbsnp"],
+        cosmic=config["resources"]["cosmic"],
+        target_intervals=lambda wildcards: config['target_intervals'][PairsCapture[wildcards.somaticPair]]
+    log: "{anything}/mutect/{somaticPair}.mutect.raw.vcf.log"
+    version: "1.1.7"
+    threads: 32
+    shell: """
+gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.bed
+
+module load muTect/{version}
+
+muTect \
+--memory 58g \
+--tmpdir /lscratch/${{SLURM_JOBID}} \
+--analysis_type MuTect \
+--reference_sequence {input.reference} \
+--cosmic {params.cosmic} \
+--dbsnp {params.dbsnp} \
+--input_file:normal {input[0]} \
+--input_file:tumor {input[2]} \
+--out {output.call_stats} \
+--coverage_file {output.coverage} \
+--intervals /lscratch/${{SLURM_JOBID}}/target_intervals.bed \
+--vcf  {output.vcf} \
+> {log} 2>&1
+
+"""
+
+
+rule VarScan:
+    input: 
+        lambda wildcards: somaticPairs[wildcards.somaticPair],
+        reference = config['references'][config['reference']]
+    output: 
+        snvs="{anything}/varscan/{somaticPair}.varscan.snvs.raw.vcf",
+        indels="{anything}/varscan/{somaticPair}.varscan.indels.raw.vcf"
+    params: 
+        rulename = "VarScan",
+        batch="-c 32 --mem=61g --gres=lscratch:400 --time=24:00:00",
+        outBase="{anything}/varscan/{somaticPair}.varscan",
+        target_intervals=lambda wildcards: config['target_intervals'][PairsCapture[wildcards.somaticPair]]
+    log: "{anything}/varscan/{somaticPair}.varscan.log",
+    version: "2.3.9"
+    threads: 32
+    shell: """
+module load samtools/0.1.19 varscan/{version}
+
+java -Xmx61g  -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar ${{VARSCANHOME}}/varscan.jar somatic \
+<( samtools mpileup -l {params.target_intervals} -q 2 -f {input.reference} {input[0]} ) \
+<( samtools mpileup -l {params.target_intervals} -q 2 -f {input.reference} {input[2]} ) \
+{params.outBase} --output-vcf -min-var-freq 0.05 \
+> {log} 2>&1
+
+module load vcftools/0.1.12b
+
+if [ -f {params.outBase}.snp.vcf ]; then
+    vcftools --vcf {params.outBase}.snp.vcf --bed {params.target_intervals} --out {output.snvs} --recode --keep-INFO-all
+    mv {output.snvs}.recode.vcf {output.snvs}
+    rm -f {params.outBase}.snp.vcf
+fi
+if [ -f {params.outBase}.indel.vcf ]; then
+    vcftools --vcf {params.outBase}.indel.vcf --bed {params.target_intervals} --out {output.indels} --recode --keep-INFO-all
+    mv {output.indels}.recode.vcf {output.indels}
+    rm -f {params.outBase}.indel.vcf
+fi
+"""
+
+
+# java -Xmx58g -jar \
+# /usr/local/apps/varscan/current/VarScan.v{version}.jar somatic \
+# <( samtools mpileup -C50 -BQ0 -d 1000000 -A -f {input.reference} {input[0]} ) \
+# <( samtools mpileup -C50 -d 1000000 -A -f {input.reference} {input[2]} ) \
+# {params.outBase} --output-vcf -min-var-freq 0.05
+
+
+rule strelka:
+    input: 
+        lambda wildcards: somaticPairs[wildcards.somaticPair],
+        reference = config['references'][config['reference']]
+    output: 
+        "{anything}/strelka/{somaticPair}.strelka.snvs.raw.vcf",
+        "{anything}/strelka/{somaticPair}.strelka.indels.raw.vcf"
+    log: "{anything}/strelka/{somaticPair}.strelka.snvs.raw.vcf.log"
+    params: 
+        rulename = "strelka",
+        batch="-c 32 --mem=62g --gres=lscratch:400 --time=24:00:00",
+        target_intervals=lambda wildcards: config['target_intervals'][PairsCapture[wildcards.somaticPair]]
+    version: "1.0.14"
+    threads: 32
+    shell: """
+module load strelka/{version}
+
+configureStrelkaWorkflow.pl \
+--normal={input[0]} \
+--tumor={input[2]} \
+--ref={input.reference} \
+--config=/data/CCRBioinfo/zhujack/snake/config.ini \
+--output-dir=/lscratch/${{SLURM_JOBID}}/strelka \
+> {log} 2>&1
+
+make -j {threads} -f /lscratch/${{SLURM_JOBID}}/strelka/Makefile 2>> {log}
+
+vcftools --vcf /lscratch/${{SLURM_JOBID}}/strelka/results/all.somatic.snvs.vcf --bed {params.target_intervals} --out {output[0]} --recode --keep-INFO-all
+mv {output[0]}.recode.vcf {output[0]}
+
+vcftools --vcf /lscratch/${{SLURM_JOBID}}/strelka/results/all.somatic.indels.vcf --bed {params.target_intervals} --out {output[1]} --recode --keep-INFO-all
+mv {output[1]}.recode.vcf {output[1]}
+"""
+
+## variant calling for mutiple samples
+
+rule UnifiedGenotyperM:
+    input: bam=BAMS,
+           bai=BAIS,
+           reference = config['references'][config['reference']]
+    output: "STUDY/" + config['reference'] + "." + config['aligner'] + "/variant/unifiedgenotyper_all.raw.vcf"
+    params: 
+        rulename = "UnifiedGenotyperM",
+        batch="-c 32 --mem=125g --gres=lscratch:400 --time=2-00:00:00", 
+        inBams=' '.join(["-I " + i for i in BAMS]),
+        dbsnp=config["resources"]["dbsnp"]
+    log: "STUDY/" + config['reference'] + "." + config['aligner'] + "/variant/unifiedgenotyper_all.raw.vcf.log"
+    threads: 32
+    version: config['versions']['GATK']
+    shell: """
+module load GATK/{version}
+
+java -Xmx125g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+-nt {threads} \
+-rf BadCigar \
+-glm BOTH \
+-T UnifiedGenotyper \
+-R {input.reference} \
+{params.inBams} \
+-o {output} \
+--dbsnp {params.dbsnp} \
+-mbq 20 \
+-rf MappingQuality -mmq 30 \
+-log {log}
+"""  
+
+# -L /data/CCRBioinfo/zhujack/snake/hg19_chr_co.bed
+
+
+## Multiple sample freebayes
+rule freebayesM:
+    input: bam=BAMS,
+           bai=BAIS,
+           reference = config['references'][config['reference']]
+    output: "STUDY/" + config['reference'] + "." + config['aligner'] + "/variant/freebayes_all.raw.vcf"
+    params: 
+        rulename = "freebayesM",
+        batch="-c 32 --mem=125g --gres=lscratch:400 --time=24:00:00"
+    log: "STUDY/" + config['reference'] + "." + config['aligner'] + "/variant/freebayes_all.raw.vcf.log"
+    version: "0.9.21"
+    run:
+        bams = " ".join('-b ' + bam for bam in input.bam)
+        shell("""
+module load freebayes/{version}
+
+freebayes -f {input.reference} \
+--haplotype-length 50 \
+{bams} \
+-v {output} \
+> {log} 2>&1
+
+""")
+
+
+## platypusS
+rule platypusS:
+    input: 
+        bam=lambda wildcards: SUBJECT_Capture_bams[ wildcards.subject+'_'+wildcards.capture+'_'+config['reference']+'_'+config['aligner'] ],
+        bai=lambda wildcards: [bam + '.bai' for bam in SUBJECT_Capture_bams[ wildcards.subject+'_'+wildcards.capture+'_'+config['reference']+'_'+config['aligner'] ] ],
+        reference = config['references'][config['reference']]
+    output:
+        "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.platypus.raw.vcf"
+    params: 
+        rulename = "platypusS",
+        batch="-c 32 --mem=125g --gres=lscratch:4 --time=24:00:00",
+        target_intervals=lambda wildcards: config['target_intervals'][wildcards.capture]
+    threads: 32
+    version: "0.8.1"
+    log:  "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.platypus.log"
+    run:
+        bamFiles = ",".join(input.bam)
+        shell("""
+module load platypus/{version}
+
+gawk '{{print $1 ":" $2 "-" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.txt
+
+platypus callVariants \
+--nCPU={threads} \
+--bufferSize=1000000 \
+--maxReads=100000000 \
+--bamFiles={bamFiles} \
+--regions=/lscratch/${{SLURM_JOBID}}/target_intervals.txt \
+--output={output} \
+--refFile={input.reference} \
+--logFileName={log}
+""")
+
+## haplotypecallerS
+rule HaplotypeCallerS:
+    input: 
+        bam=lambda wildcards: SUBJECT_Capture_bams[ wildcards.subject+'_'+wildcards.capture+'_'+config['reference']+'_'+config['aligner'] ],
+        bai=lambda wildcards: [bam + '.bai' for bam in SUBJECT_Capture_bams[ wildcards.subject+'_'+wildcards.capture+'_'+config['reference']+'_'+config['aligner'] ] ],
+        reference = config['references'][config['reference']]
+    output: 
+        "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.haplotypecaller.raw.vcf"
+    params: 
+        rulename = "HaplotypeCallerS",
+        batch="-c 32 --mem=62g --gres=lscratch:400 --time=24:00:00",
+        dbsnp=config["resources"]["dbsnp"],
+        target_intervals=lambda wildcards: config['target_intervals'][wildcards.capture]
+    log:  "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.haplotypecaller.raw.vcf.log"
+    threads: 32
+    version: config['versions']['GATK']
+    run:
+        bamFiles = " ".join('-I ' + bam for bam in input.bam)
+        shell("""
+module load GATK/{version}
+## convert to 0-based coordinates
+gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.bed
+
+java -Xmx31g -Djava.io.tmpdir=/lscratch/$SLURM_JOBID -jar $GATK_JAR \
+-T HaplotypeCaller \
+-R {input.reference} \
+{bamFiles} \
+-L /lscratch/${{SLURM_JOBID}}/target_intervals.bed \
+-o {output} \
+--dbsnp {params.dbsnp} \
+-mbq 20 \
+-mmq 30 \
+-log {log}
+""")
+
+## unifiedgenotyperS
+rule UnifiedGenotyperS:
+    input: 
+        bam=lambda wildcards: SUBJECT_Capture_bams[ wildcards.subject+'_'+wildcards.capture+'_'+config['reference']+'_'+config['aligner'] ],
+        bai=lambda wildcards: [bam + '.bai' for bam in SUBJECT_Capture_bams[ wildcards.subject+'_'+wildcards.capture+'_'+config['reference']+'_'+config['aligner'] ] ],
+        reference = config['references'][config['reference']]
+    output: 
+        "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.unifiedgenotyper.raw.vcf"
+    params: 
+        rulename = "UnifiedGenotyperS",
+        batch="-c 8 --mem=62g --gres=lscratch:400 --time=24:00:00",
+        dbsnp=config["resources"]["dbsnp"],
+        target_intervals=lambda wildcards: config['target_intervals'][wildcards.capture]
+    log:  "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.unifiedgenotyper.raw.vcf.log"
+    threads: 8
+    version: config['versions']['GATK']
+    run:
+        bamFiles = " ".join('-I ' + bam for bam in input.bam)
+        shell("""
+module load GATK/{version}
+## convert to 0-based coordinates
+gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.bed
+
+java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar ${{GATK_JAR}} \
+-nt {threads} \
+-rf BadCigar \
+-glm BOTH \
+-T UnifiedGenotyper \
+-R {input.reference} \
+{bamFiles} \
+-L /lscratch/${{SLURM_JOBID}}/target_intervals.bed \
+-o {output} \
+--dbsnp {params.dbsnp} \
+-mbq 20 \
+-rf MappingQuality -mmq 30 \
+-log {log}
+""")
+
+
+## freebayes
+rule freebayesS:
+    input: 
+        bam=lambda wildcards: SUBJECT_Capture_bams[ wildcards.subject+'_'+wildcards.capture+'_'+config['reference']+'_'+config['aligner'] ],
+        bai=lambda wildcards: [bam + '.bai' for bam in SUBJECT_Capture_bams[ wildcards.subject+'_'+wildcards.capture+'_'+config['reference']+'_'+config['aligner'] ] ],
+        reference = config['references'][config['reference']]
+    output: 
+        "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.freebayes.raw.vcf"
+    params: 
+        rulename = "freebayesS",
+        batch="-c 32 --mem=125g --gres=lscratch:4 --time=24:00:00",
+        target_intervals=lambda wildcards: config['target_intervals'][wildcards.capture]
+    log:  "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.freebayes.log"
+    version: "0.9.21"
+    run:
+        bamFiles = " ".join('-b ' + bam for bam in input.bam)
+        shell("""
+module load freebayes/{version}
+
+## convert to 0-based coordinates
+gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.bed
+
+freebayes -f {input.reference} \
+--haplotype-length 50 \
+{bamFiles} \
+-v {output} \
+> {log} 2>&1
+
+## only on target regions
+module load vcftools/0.1.12b
+vcftools --vcf {output} --bed /lscratch/${{SLURM_JOBID}}/target_intervals.bed --out {output} --recode --keep-INFO-all
+mv {output}.recode.vcf {output}
+
+##not working
+# -t /lscratch/${{SLURM_JOBID}}/target_intervals.bed
+""")
+
+
+##############################
+## rules for annatating vcf files
+##############################
+
+rule snpEff:
+    input: 
+        vcf="{base}.raw.vcf",
+        reference = config['references'][config['reference']]
+    output:
+        "{base}.annotated.vcf"
+    params: 
+        rulename = "snpEff",
+        batch="-c 32 --mem=62g --gres=lscratch:400 --time=24:00:00",
+        snpEff_genome=config["snpEff_genome"],
+        snpEff_config=config["snpEff_config"],
+        CosmicCodingMuts=config["resources"]['CosmicCodingMuts'],
+        dbsnp=config["resources"]['dbsnp'],
+        clinvar=config["resources"]['clinvar'],
+        ESP_snps=config["resources"]['ESP_snps']
+    threads: 32
+    version: "4.1c"
+    log: "{base}.annotated.vcf.log"
+    shell: """
+module load snpEff/{version}
+
+java -Xmx61g  -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar ${{SNPEFFHOME}}/SnpSift.jar \
+dbnsfp \
+-c {params.snpEff_config} \
+-a {input.vcf} \
+| java -Xmx4g -jar ${{SNPEFFHOME}}/SnpSift.jar annotate {params.CosmicCodingMuts} - \
+| java -Xmx4g -jar ${{SNPEFFHOME}}/SnpSift.jar annotate {params.dbsnp} - \
+| java -Xmx4g -jar ${{SNPEFFHOME}}/SnpSift.jar annotate {params.clinvar} - \
+| java -Xmx12g -jar ${{SNPEFFHOME}}/snpEff.jar \
+-t \
+-canon {params.snpEff_genome} > {output} \
+2> {log}
+
+
+## not working
+##| java -Xmx4g -jar ${{SNPEFFHOME}}/SnpSift.jar  annotate {params.ESP_snps} /dev/stdin 
+
+"""
+
+
+# -f  Ensembl_transcriptid,Uniprot_acc,Interpro_domain,SIFT_score,Polyphen2_HVAR_pred,GERP++_NR,GERP++_RS,29way_logOdds,1000Gp1_AF,1000Gp1_AFR_AF,1000Gp1_EUR_AF,1000Gp1_AMR_AF,1000Gp1_ASN_AF,ESP6500_AA_AF,ESP6500_EA_AF,Polyphen2_HVAR_score
+
+## not working
+rule vcf2text:
+    input:  "{base}.annotated.vcf"
+    output: "{base}.annotated.txt"
+    params: 
+        rulename = "vcf2text",
+        batch="", sample=lambda wildcards: re.sub('\..*$', '', os.path.basename(wildcards.base))
+    threads: 1
+    shell: """
+module load R/3.0.0; cat {input} \
+| sed 's/<ID=dbNSFP_Polyphen2_HVAR_score,Number=A,Type=Float/<ID=dbNSFP_Polyphen2_HVAR_score,Number=A,Type=String/' \
+| sed 's/<ID=dbNSFP_Polyphen2_HVAR_pred,Number=A,Type=Character/<ID=dbNSFP_Polyphen2_HVAR_pred,Number=A,Type=String/' \
+| sed 's/<ID=dbNSFP_SIFT_score,Number=A,Type=Integer/<ID=dbNSFP_SIFT_score,Number=A,Type=String/' \
+| seqtool vcf melt -i -o {output} -s  {params.sample}
+if [ ! -f {output} ];then 
+    touch {output}
+fi
+"""
+
+
+# rule gatkannotatevcf:
+#     input: "variant/strelka/{source}/all.somatic.{variant}.annotated.vcf","bam/{source}/DNA/{source}_Normal.realigned.md.bam","bam/{
+# source}/DNA/{source}_Tumor.realigned.md.bam"
+#     output: "variant/strelka/{source}/all.somatic.{variant}.annotated.gatk.vcf","variant/strelka/{source}/all.somatic.{variant}.anno
+# tated.gatk.vcf.idx"
+#     params: batch="-l nodes=1:gpfs"
+#     threads: 8
+#     shell: "java -jar /usr/local/GATK/GenomeAnalysisTK.jar -T VariantAnnotator -rf BadCigar -nt {threads} -R /data/CCRBioinfo/public
+# /GATK/bundle/2.3/hg19/ucsc.hg19.fasta -I {input[1]} -I {input[2]} -V:VCF {input[0]} -U -o {output[0]} -A AlleleBalanceBySample -A Ma
+# ppingQualityZeroBySample -A MappingQualityZero -A QualByDepth -A ReadPosRankSumTest -A BaseQualityRankSumTest -A HaplotypeScore -A R
+# MSMappingQuality -A LowMQ -A HomopolymerRun -A BaseCounts -A FisherStrand -A SpanningDeletions"
+
+
+## rules can not be classified or some local rules
+
+
+rule ngCGH:
+    input: 
+        lambda wildcards: somaticPairs[wildcards.somaticPair]
+    output: 
+        "{anything}/ngcgh/{somaticPair}.cgh",
+        "{anything}/ngcgh/{somaticPair}.nexus"
+    params: 
+        rulename = "ngCGH",
+        batch="-c 32 --mem=62g"
+    version: "0.0.0"
+    log: "{anything}/ngcgh/{somaticPair}.cgh.log"
+    threads: 32
+    shell: """
+/gpfs/gsfs2/users/CCRBioinfo/virtualenvs/py2.7.3/bin/ngCGH \
+-t {threads} \
+-o {output[0]} \
+{input[0]} \
+{input[2]} \
+2>{log}
+
+/gpfs/gsfs2/users/CCRBioinfo/virtualenvs/py2.7.3/bin/convert2nexus \
+{output[0]} > {output[1]}
+"""
+
+## mpileup snpcalling
+rule mpileup:
+    input: bam="{base}/bam/{sample}.final.bam",
+           bai="{base}/bam/{sample}.final.bam.bai",
+           reference = config['references'][config['reference']]
+    output: 
+        "{base}/genotyping/{sample}.gt"
+    params: 
+        rulename = "mpileup",
+        batch="-c 32 --mem=62g",
+        genotyping_sites=config['genotyping_sites']
+    threads: 32
+    version: "0.1.19"
+    log: "Genotyping/log/{sample}.gt.log"
+    shell: """
+module load samtools/{version}
+
+samtools mpileup -u -C50 \
+-f {input.reference} \
+-l {params.genotyping_sites} \
+{input.bam} \
+| bcftools view -gc - \
+| /data/Clinomics/Tools/Genotyping/vcf2genotype.pl - \
+> {output} \
+2> {log}
+
+cp -f {output} Genotyping/GenotypeFiles/
+
+chmod 664 Genotyping/GenotypeFiles/`basename {output}`
+
+"""  
+
+
+rule genotyping:
+    input: GenotypeFiles
+    output: Genotyping_done
+    params:
+        rulename = "genotyping",
+        batch=""
+    shell: """
+cd Genotyping/
+sh /data/Clinomics/Tools/Genotyping/genotype.sh
+touch `basename {output}`
+chmod 664 * 2> /dev/null
+
+"""
+
+rule rajeshAnn:
+    input: "SUBJECT/{base}.raw.vcf"
+    output: "SUBJECT/{base}.ann.log"
+    params:
+        rulename = "rajeshAnn",
+        batch="",
+        outBase="SUBJECT/{base}"
+    threads: 1
+    version: "5.18.2"
+    log: "SUBJECT/{base}.ann.log"
+    shell: """
+
+module load perl/5.18.2
+
+
+perl /data/Clinomics/Tools/vcf2txt.v1.pl {input} > {params.outBase}
+
+cd `dirname {input}`
+perl /data/Clinomics/Tools/annovar/annotation-pipeline.pl -inFile `basename {params.outBase}` > `basename {log}` 2>&1
+
+
+"""
+
+

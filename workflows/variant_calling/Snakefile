@@ -1,0 +1,195 @@
+import itertools
+import os
+import collections
+from snakemake.utils import R
+from snakemake.exceptions import MissingInputException
+
+# Environment variable for serpentine base directory location
+try:
+    SERPENTINE_HOME=os.environ['SERPENTINE_HOME']
+except KeyError:
+    SERPENTINE_HOME="/data/Clinomics/Tools/serpentine_b2"
+    pass
+
+def _get_rule_path(rule_file_path):
+    "Combines the serpentine base directory with serpentine rule paths"
+    return(os.path.join(SERPENTINE_HOME,rule_file_path))
+
+def _get_fastq_without_suffix():
+    retval = [x.replace('.fastq.gz','') for x in 
+              itertools.chain.from_iterable(config['units'].values())]
+    return(retval)
+
+configfile: "config.json"
+
+## overwrite variables in the config
+config['germlineCallers'] = [ "haplotypecaller", "freebayes", "platypus", "unifiedgenotyper"]
+config['somaticCallers'] = ["mutect", "strelka"]
+
+## display some information:
+# print(config['samples'].keys())
+# print(config['germlineCallers'])
+# print(config['somaticCallers'])
+
+## dic for entity conversion
+UNIT_TO_LIBRARY = {}
+for lib,units in config['libraries'].items():
+    for unit in units:
+        UNIT_TO_LIBRARY[unit]=lib
+
+LIBRARY_TO_SAMPLE  = {}
+for sample,libs in config['samples'].items():
+    for lib in libs:
+        LIBRARY_TO_SAMPLE[lib]=sample
+
+SAMPLE_TO_SUBJECT  = {}
+for subject,samples in config['subjects'].items():
+    for sample in samples:
+        SAMPLE_TO_SUBJECT[sample]=subject
+
+SAMPLE_TO_STUDY  = {}
+for study,samples in config['studies'].items():
+    for sample in samples:
+        SAMPLE_TO_STUDY[sample]=study
+
+
+UNIT_TO_SAMPLE = {}
+for unit in config['units'].keys():
+    UNIT_TO_SAMPLE[unit]=LIBRARY_TO_SAMPLE[UNIT_TO_LIBRARY[unit]]
+    
+
+UNIT_TO_SUBJECT = {}
+for unit in config['units'].keys():
+    UNIT_TO_SUBJECT[unit]=SAMPLE_TO_STUDY[LIBRARY_TO_SAMPLE[UNIT_TO_LIBRARY[unit]]]
+
+UNIT_TO_STUDY = {}
+for unit in config['units'].keys():
+    UNIT_TO_STUDY[unit]=SAMPLE_TO_SUBJECT[LIBRARY_TO_SAMPLE[UNIT_TO_LIBRARY[unit]]]
+
+SAMPLE_TO_UNIT = collections.defaultdict(list)
+for unit,sample in UNIT_TO_SAMPLE.items():
+    SAMPLE_TO_UNIT[sample].append(unit)
+
+SUBJECT_TO_UNIT = collections.defaultdict(list)
+for unit,subject in UNIT_TO_SUBJECT.items():
+    SUBJECT_TO_UNIT[subject].append(unit)
+
+STUDY_TO_UNIT = collections.defaultdict(list)
+for unit,study in UNIT_TO_STUDY.items():
+    STUDY_TO_UNIT[study].append(unit)
+
+
+## bam files
+BAMS = ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/bam/{sample}.final.bam".format(subject=SAMPLE_TO_SUBJECT[s], sample=s, reference=config['reference'], aligner=config['aligner']) for s in config['samples'].keys() ]
+BAIS = [BAM + ".bai" for BAM in BAMS]
+BAMS_all = [(BAM + ' ' + BAM + ".tdf " + BAM + ".bai").split(' ') for BAM in BAMS]
+
+## genotyping files
+GenotypeFiles = ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/genotyping/{sample}.gt".format(subject=SAMPLE_TO_SUBJECT[s], sample=s, reference=config['reference'], aligner=config['aligner']) for s in config['samples'].keys() ]
+
+Genotyping_done="Genotyping/Genotyping_done"
+
+
+## metrics
+metricsBases = ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/qc/{sample}.final.bam".format(subject=SAMPLE_TO_SUBJECT[s], sample=s, reference=config['reference'], aligner=config['aligner']) for s in config['samples'].keys() ]
+METRICS_all = [( metricsBase + ".coverage " + metricsBase + ".depth " + metricsBase + ".dupmetrics " + metricsBase + ".flagstat " + metricsBase + ".hsmetrics " + metricsBase + ".summetrics " + metricsBase + ".insert_size_metrics " + metricsBase + ".quality_distribution_metrics " + metricsBase + ".quality_by_cycle_metrics").split(' ') for metricsBase in metricsBases]
+
+#METRICS_all = [( metricsBase + ".coverage " + metricsBase + ".depth.depth_avgByGene.txt " + metricsBase + ".depth " +  metricsBase.replace('qc', 'qc/bamqc') + ".qualimapReport.html " + metricsBase + ".dupmetrics " + metricsBase + ".flagstat " + metricsBase + ".dupmetrics " + metricsBase + ".hsmetrics " + metricsBase + ".summetrics " + metricsBase + ".insert_size_metrics " + metricsBase + ".quality_distribution_metrics " + metricsBase + ".quality_by_cycle_metrics").split(' ') for metricsBase in metricsBases]
+
+## save faastqc to a new folder
+# FASTQC = expand("{unit}_fastqc.zip", unit = _get_fastq_without_suffix())
+fqList = _get_fastq_without_suffix()
+fqc2fq = {}
+FASTQC = []
+for fq in fqList:
+    fqBase = os.path.basename(fq)
+    fqc2fq[fqBase] = fq + ".fastq.gz"
+    FASTQC += ["fastqc/" + fqBase + "_fastqc.zip"]
+
+## metrics summaries
+hotspot_summary = "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/hotspotCoverage.txt"
+
+METRICS_summaries = "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/qcMetricsAll.txt"
+
+#qcSummaries = [METRICS_summaries, hotspot_summary, "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/DepthOfCoverage", "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/DiagnoseTargets.vcf"]
+qcSummaries = [METRICS_summaries, hotspot_summary]
+
+
+## variants for samples
+VARIANTS = []
+for caller in config['germlineCallers']:
+    VARIANTS += ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/{caller}/{sample}.{caller}.ann.log".format(subject=SAMPLE_TO_SUBJECT[s], caller=caller, sample=s, reference=config['reference'],  aligner=config['aligner']) for s in config['samples'].keys() ]
+
+## variants for subjects
+VARIANTS_subject = []
+for caller in config['germlineCallers']:
+    VARIANTS_subject += ["SUBJECT/{subject}/{reference}.{aligner}/{subject}_{capture}.{caller}.ann.log".format(subject=subject, caller=caller, reference=config['reference'], aligner=config['aligner'], capture = capture) for subject in config['subjects'].keys() for capture in config['subject_captures'][subject]  ]
+
+## bam files by subject capture
+SUBJECT_Capture_bams = {}
+for subject in config['subjects'].keys():
+    for capture in config['subject_captures'][subject]:
+        SUBJECT_Capture_bams[subject+'_'+capture+'_'+config['reference']+'_'+config['aligner']] = ["SUBJECT/"+subject+'/'+sample+'/'+config['reference']+'.'+config['aligner']+'/bam/'+sample+".final.bam" for sample in config['subjects'][subject] if config['sample_captures'][sample][0] == capture ]
+
+
+## variant for a study
+VARIANTS_freebayesM = "STUDY/" + config['reference'] + "." + config['aligner'] + "/variant/freebayes_all.ann.log"
+VARIANTS_unifiedgenotyperM = "STUDY/" + config['reference'] + "." + config['aligner'] + "/variant/unifiedgenotyper_all.ann.log"
+
+## strelka
+VARIANTS_somatic = []
+ngCGH_nexus = []
+somaticPairs = {}
+PairsCapture = {}
+if len(config['sample_references']) > 0:
+    for pairedS in config['sample_references']:
+        for pairedRef in config['sample_references'][pairedS]:
+            pairedS_bam = "SUBJECT/{subject}/{sample}/{reference}.{aligner}/bam/{sample}.final.bam".format(subject=SAMPLE_TO_SUBJECT[pairedS], sample=pairedS, reference=config['reference'], aligner=config['aligner'])
+            pairedRef_bam = "SUBJECT/{subject}/{sample}/{reference}.{aligner}/bam/{sample}.final.bam".format(subject=SAMPLE_TO_SUBJECT[pairedRef], sample=pairedRef, reference=config['reference'], aligner=config['aligner'])
+            somaticPairs_bams = [pairedRef_bam, pairedRef_bam + ".bai", pairedS_bam, pairedS_bam + ".bai"]          
+            somaticPairs[pairedRef + "_vs_" + pairedS] = somaticPairs_bams
+            PairsCapture[pairedRef + "_vs_" + pairedS] = config['sample_captures'][pairedS][0]
+            if 'strelka' in config['somaticCallers']:
+                VARIANTS_somatic += ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/strelka/{ref_sample}_vs_{sample}.strelka.snvs.ann.log".format(subject=SAMPLE_TO_SUBJECT[pairedS], sample=pairedS, reference=config['reference'], aligner=config['aligner'], ref_sample=pairedRef)]
+                VARIANTS_somatic += ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/strelka/{ref_sample}_vs_{sample}.strelka.indels.ann.log".format(subject=SAMPLE_TO_SUBJECT[pairedS], sample=pairedS, reference=config['reference'], aligner=config['aligner'], ref_sample=pairedRef)]
+            if 'mutect' in config['somaticCallers']:
+                VARIANTS_somatic += ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/mutect/{ref_sample}_vs_{sample}.mutect.call_stats.txt".format(subject=SAMPLE_TO_SUBJECT[pairedS], sample=pairedS, reference=config['reference'], aligner=config['aligner'], ref_sample=pairedRef)]
+                VARIANTS_somatic += ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/mutect/{ref_sample}_vs_{sample}.mutect.coverage.wig.txt".format(subject=SAMPLE_TO_SUBJECT[pairedS], sample=pairedS, reference=config['reference'], aligner=config['aligner'], ref_sample=pairedRef)]
+                VARIANTS_somatic += ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/mutect/{ref_sample}_vs_{sample}.mutect.ann.log".format(subject=SAMPLE_TO_SUBJECT[pairedS], sample=pairedS, reference=config['reference'], aligner=config['aligner'], ref_sample=pairedRef)]
+                if 'varscan' in config['somaticCallers']:
+                    VARIANTS_somatic += ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/varscan/{ref_sample}_vs_{sample}.varscan.snvs.ann.log".format(subject=SAMPLE_TO_SUBJECT[pairedS], sample=pairedS, reference=config['reference'], aligner=config['aligner'], ref_sample=pairedRef)]
+                    VARIANTS_somatic += ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/varscan/{ref_sample}_vs_{sample}.varscan.indels.ann.log".format(subject=SAMPLE_TO_SUBJECT[pairedS], sample=pairedS, reference=config['reference'], aligner=config['aligner'], ref_sample=pairedRef)]
+            ngCGH_nexus += ["SUBJECT/{subject}/{sample}/{reference}.{aligner}/ngcgh/{ref_sample}_vs_{sample}.nexus".format(subject=SAMPLE_TO_SUBJECT[pairedS], sample=pairedS, reference=config['reference'], aligner=config['aligner'], ref_sample=pairedRef)]
+
+
+rule final:
+    params: batch='-l nodes=1:gpfs'
+    input:
+        BAMS_all
+        + METRICS_all \
+        + FASTQC \
+        + qcSummaries \
+        + VARIANTS_subject \
+        + VARIANTS \
+        + VARIANTS_somatic \
+        + GenotypeFiles \
+        + [Genotyping_done]
+
+
+        # BAMS_all \
+        # + METRICS_all \
+        # + FASTQC \
+        # + qcSummaries \
+        # + VARIANTS_somatic \
+        # + VARIANTS \
+        # + ngCGH_nexus \
+        # + VARIANTS_subject
+
+
+
+
+localrules: final, index_bam, mvDup, targetIntervals, qcSum_hotspot
+
+ruleorder: bwamem_map > addrg > gatk_print_reads > index_bam
+
+include: _get_rule_path("rules/ClinOmics_serpentine2.rules")

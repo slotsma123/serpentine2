@@ -1,0 +1,42 @@
+{
+	"platform": "Illumina",
+	"reference": "ucsc.hg19",
+	"aligner": "bwamem",
+	"hotspot_intervals": "/data/Clinomics/Ref/serpentine_resources/hg19_Hotspot.07.07.15.bed",
+	"genotyping_sites": "/data/Clinomics/Ref/annovar/1000gSites4genotyping.bed",
+	"snpEff_config": "/data/Clinomics/Ref/serpentine_resources/snpEff_b2.config",
+	"snpEff_genome": "GRCh37.75",	
+	"germlineCallers": ["freebayes","unifiedgenotyper","platypus","pindel","haplotypecaller"],
+	"somaticCallers": ["strelka", "mutect","varscan"],
+	"versions": {
+		"GATK": "3.4-0",
+		"novocraft": "3.02.10",
+		"bwa": "0.7.10"
+	},
+	"references": {
+		"human_g1k_v37": "/data/Clinomics/Ref/serpentine_resources/human_g1k_v37/human_g1k_v37.fasta",
+		"ucsc.hg19": "/data/Clinomics/Ref/serpentine_resources/ucsc.hg19/ucsc.hg19.fasta"
+	},
+	"resources_b37": {
+		"dbsnp": "/data/Clinomics/Ref/serpentine_resources/human_g1k_v37/dbsnp_138.b37.vcf",
+		"cosmic": "/data/Clinomics/Ref/serpentine_resources/human_g1k_v37/cosmic_v67.b37.vcf",
+		"knownIndels": ["/data/Clinomics/Ref/serpentine_resources/human_g1k_v37/Mills_and_1000G_gold_standard.indels.b37.vcf",
+				"/data/Clinomics/Ref/serpentine_resources/human_g1k_v37/1000G_phase1.indels.b37.vcf"],
+		"CosmicCodingMuts": "/data/Clinomics/Ref/serpentine_resources/CosmicCodingMuts_v67_20131024.vcf",
+		"ESP_snps": "/data/Clinomics/Ref/serpentine_resources/ESP6500SI-V2-SSA137.updatedRsIds.snps_indels.vcf",
+		"clinvar": "/data/Clinomics/Ref/serpentine_resources/clinvar_dbsnp138_GRCh37_20140211.vcf"
+	},
+	"resources": {
+		"dbsnp":  "/data/Clinomics/Ref/serpentine_resources/ucsc.hg19/dbsnp_138.hg19.vcf.gz",
+		"cosmic": "/data/Clinomics/Ref/serpentine_resources/ucsc.hg19/cosmic_v67.hg19.vcf",
+		"knownIndels": ["/data/Clinomics/Ref/serpentine_resources/ucsc.hg19/Mills_and_1000G_gold_standard.indels.hg19.vcf.gz",
+				"/data/Clinomics/Ref/serpentine_resources/ucsc.hg19/1000G_phase1.indels.hg19.vcf.gz"],
+		"CosmicCodingMuts": "/data/Clinomics/Ref/serpentine_resources/CosmicCodingMuts_v67_20131024.vcf",
+		"ESP_snps": "/data/Clinomics/Ref/serpentine_resources/ESP6500SI-V2-SSA137.updatedRsIds.snps_indels.vcf",
+		"clinvar": "/data/Clinomics/Ref/serpentine_resources/clinvar_dbsnp138_GRCh37_20140211.vcf"
+	},
+	"target_intervals": {
+		"clin.ex.v1": "/data/Clinomics/Ref/serpentine_resources/design/Agilent_SureSelect_Clinical_Research_Exome.target.hg19.merged.bed",
+		"clin.snv.v1": "/data/Clinomics/Ref/serpentine_resources/design/Agilent_SureSelect_Killian_Version4.target.hg19.merged.bed"
+	}
+}
