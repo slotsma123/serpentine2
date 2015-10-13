@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#SBATCH --job-name="Validation"
+#SBATCH --job-name="ClinOmics"
 #SBATCH --mail-type=FAIL
 #
 
@@ -9,18 +9,16 @@ cd $SLURM_SUBMIT_DIR
 
 module load python/3.4.3
  
-# source /data/CCRBioinfo/zhujack/local/venvs/py3.3.3/bin/activate
-
-export SERPENTINE_HOME="/data/Clinomics/Tools/serpentine_b2"
+export SERPENTINE_HOME="/data/Clinomics/Tools/serpentine2"
 
 ## create json file
 module load R/3.2.0_gcc-4.4.7
 ${SERPENTINE_HOME}/do_samplesheet2json.R -s Clinomics_pipeline_samplesheet.txt -c ${SERPENTINE_HOME}/config_common.json -o '.'
 
-## rm the Genotyping_done
-if [ -f Genotyping/Genotyping_done ]; then
-	rm -f Genotyping/Genotyping_done
-fi
+# ## rm the Genotyping_done
+# if [ -f Genotyping/Genotyping_done ]; then
+#     rm -f Genotyping/Genotyping_done
+# fi
 
 module load rpy2/2.6.1-R_3.2.0
 snakemake \

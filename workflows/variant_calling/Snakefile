@@ -8,7 +8,7 @@ from snakemake.exceptions import MissingInputException
 try:
     SERPENTINE_HOME=os.environ['SERPENTINE_HOME']
 except KeyError:
-    SERPENTINE_HOME="/data/Clinomics/Tools/serpentine_b2"
+    SERPENTINE_HOME="/data/Clinomics/Tools/serpentine2"
     pass
 
 def _get_rule_path(rule_file_path):
