@@ -5,6 +5,7 @@
 #
 
 NOW=$(date +"%H%M%S_%m%d%Y")
+export TimeStamp=`NOW`
 cd $SLURM_SUBMIT_DIR
 
 module load python/3.4.3
@@ -23,7 +24,6 @@ ${SERPENTINE_HOME}/do_samplesheet2json.R -s Clinomics_pipeline_samplesheet.txt -
 module load rpy2/2.6.1-R_3.2.0
 snakemake \
 	--nolock \
-	--notemp \
 	--jobname 'cln.{rulename}.{jobid}' \
 	-s ${SERPENTINE_HOME}/workflows/variant_calling/Snakefile \
 	-d `pwd` \
