@@ -37,7 +37,7 @@ Serpentine can currently run workflows composed of any combination of the follow
 
 ## Graphical representation of variant calling workflow
 
-![](https://github.com/zhujack/serpentine2/blob/master/workflows/variant_calling/clinomics_rulegraph_example.png)
+![](https://github.com/zhujack/serpentine2/blob/master/workflows/variant_calling/Clinomics_rulegraph_example.png)
 
 ![](https://github.com/zhujack/serpentine2/blob/master/workflows/variant_calling/Clinomics_NCI0276_B_Panel_dag.png)
 
