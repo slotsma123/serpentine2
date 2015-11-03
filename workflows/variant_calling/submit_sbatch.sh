@@ -5,7 +5,7 @@
 #
 
 NOW=$(date +"%H%M%S_%m%d%Y")
-export TimeStamp=`NOW`
+export TimeStamp=$NOW
 cd $SLURM_SUBMIT_DIR
 
 module load python/3.4.3
@@ -14,7 +14,7 @@ export SERPENTINE_HOME="/data/Clinomics/Tools/serpentine2"
 
 ## create json file
 module load R/3.2.0_gcc-4.4.7
-${SERPENTINE_HOME}/do_samplesheet2json.R -s Clinomics_pipeline_samplesheet.txt -c ${SERPENTINE_HOME}/config_common.json -o '.'
+${SERPENTINE_HOME}/scripts/do_samplesheet2json.R -s Clinomics_pipeline_samplesheet.txt -c ${SERPENTINE_HOME}/config_common.json -o '.'
 
 # ## rm the Genotyping_done
 # if [ -f Genotyping/Genotyping_done ]; then

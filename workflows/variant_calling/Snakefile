@@ -173,6 +173,7 @@ rule final:
         + VARIANTS \
         + VARIANTS_somatic \
         + GenotypeFiles \
+        + ngCGH_nexus \
         + [Genotyping_done]
 
 
@@ -191,12 +192,12 @@ ruleorder: bwamem_map > addrg > gatk_print_reads > index_bam
 
 include: _get_rule_path("rules/ClinOmics_serpentine2.rules")
 
-onsuccess:
-    print("Workflow finished, no error")
-    shell("chgrp -R Clinomics *")
-    shell("echo 'Execution of the ClinOmics Pipeline has successfully completed and the stats file is attached to this e-mail.\n\n -- CCR/NCI ClinOmics Staff' | mutt -s 'The ClinOmics Pipeline has successfuly completed!' -a serpentine_${{TimeStamp}}.stats -- zhujack@mail.nih.gov,manoj.tyagi@nih.gov  ")
-
-onerror:
-    print("An error occurred")
-    shell("echo 'Execution of the ClinOmics Pipeline has encountered an error and the log file is attached to this e-mail.\n\n -- CCR/NCI ClinOmics Staff' | mutt -s 'an error occurred' -a serpentine_${{TimeStamp}}.log -- zhujack@mail.nih.gov,manoj.tyagi@nih.gov < {log}")
-
+#onsuccess:
+#    print("Workflow finished, no error")
+#    shell("chgrp -R Clinomics *")
+#    shell("echo 'Execution of the ClinOmics Pipeline has successfully completed and the stats file is attached to this e-mail.\n\n -- CCR/NCI ClinOmics Staff' | mutt -s 'The ClinOmics Pipeline has successfuly completed!' -a serpentine_${{TimeStamp}}.stats -- zhujack@mail.nih.gov,manoj.tyagi@nih.gov  ")
+#
+#onerror:
+#    print("An error occurred")
+#    shell("echo 'Execution of the ClinOmics Pipeline has encountered an error and the log file is attached to this e-mail.\n\n -- CCR/NCI ClinOmics Staff' | mutt -s 'an error occurred' -a serpentine_${{TimeStamp}}.log -- zhujack@mail.nih.gov,manoj.tyagi@nih.gov < {log}")
+#
