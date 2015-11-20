@@ -112,7 +112,7 @@ hotspot_summary = "STUDY/" + config['reference'] + "." + config['aligner'] + "/q
 METRICS_summaries = "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/qcMetricsAll.txt"
 
 #qcSummaries = [METRICS_summaries, hotspot_summary, "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/DepthOfCoverage", "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/DiagnoseTargets.vcf"]
-qcSummaries = [METRICS_summaries, hotspot_summary]
+qcSummaries = [hotspot_summary]
 
 
 ## variants for samples

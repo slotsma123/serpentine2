@@ -29,8 +29,6 @@ if ( opt$verbose ) {
     write("The fun gets started...\n", stderr()) 
 }
 
-print(opt)
-
 s = as.matrix(read.delim(opt$sampleSheetFile, as.is=T, comment.char = "#"))
 
 # colnames(s)
@@ -52,7 +50,7 @@ objL <- list(
 		'sample_references' = c('sample', 'sampleN')
 )
 
-source("/home/zhujack/bin/R_functions/col2list.R")
+source("/data/Clinomics/Tools/serpentine2/scripts/col2list.R")
 
 
 objList <- list()
@@ -73,7 +71,7 @@ writeLines(jsonS, outSample)
 if( opt$commonConfigureFile == '' ) {
 	system( paste("cp", outSample, outConfig, sep=' ' ))
 } else {
-	system( paste("cat", opt$commonConfigureFile, outSample, "| json --merge >", outConfig, sep=" ") )
+	system( paste("cat", opt$commonConfigureFile, outSample, "| /data/Clinomics/Tools/serpentine2/scripts/json --merge >", outConfig, sep=" ") )
 }
 
 file.remove("config_sample.json")

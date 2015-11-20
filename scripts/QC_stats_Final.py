@@ -28,11 +28,9 @@ def _count_reads(bam):
 
 def _coverage(bam):
 
-    samtools     = '/usr/local/apps/samtools/1.2/bin/samtools';
-    intersectbed = '/usr/local/apps/bedtools/2.24.0/bin/intersectBed'
     targets      = argv[2]
 
-    cmd = '%s view -F 0x0400 -b "%s" | %s depth -q 20 -Q 30 -b %s /dev/stdin | awk -v OFS="\\t" \'{print $1,$2-1,$2,$3}\' | %s -a stdin -b %s -wo'  % (samtools, bam, samtools, targets, intersectbed, targets)
+    cmd = 'samtools view -F 0x0400 -b "%s" | samtools depth -q 20 -Q 30 -b %s /dev/stdin | awk -v OFS="\\t" \'{print $1,$2-1,$2,$3}\' | intersectBed -a stdin -b %s -wo'  % (bam, targets, targets)
     
     proc = subprocess.Popen(["-c", cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
 
@@ -148,13 +146,12 @@ def _coverage(bam):
 
 def _ontarget(bam):
 
-    intersectbed = '/usr/local/apps/bedtools/2.24.0/bin/intersectBed'
     targets      = argv[2]
     ontarget_bam = "%s_ontarget.bam" % (os.path.basename(bam)) 
 
     ## os.getenv('USER', default_value)
-    temp = tempfile.NamedTemporaryFile(dir='/scratch/tyagim/') 
-    cmd  = '%s -abam "%s" -b %s' % (intersectbed, bam, targets) 
+    temp = tempfile.NamedTemporaryFile(dir='/scratch/zhujack/') 
+    cmd  = 'intersectBed -abam "%s" -b %s' % (bam, targets) 
     args = shlex.split(cmd)
 
     subprocess.check_call(args, stdout=temp)
