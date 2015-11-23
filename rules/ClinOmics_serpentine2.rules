@@ -18,7 +18,7 @@ rule fasta_index:
         "{prefix}.{suffix,(fasta|fa)}.fai"
     params:
         rulename = "fasta_index",
-        batch="--mem=28g --time=24:00:00"
+        batch="--mem=27g --time=24:00:00"
     shell:
         "module load samtools; samtools faidx {input}"
 
@@ -30,10 +30,10 @@ rule fasta_dict:
         "{prefix}.{suffix,(fasta|fa)}.dict"
     params:
         rulename = "fasta_dict",
-        batch="--mem=28g --time=24:00:00"
+        batch="--mem=27g --time=24:00:00"
     shell:
         "module load picard/1.129; "
-        "java -Xmx16g -jar $PICARDJARPATH/picard.jar CreateSequenceDictionary "
+        "java -Xmx27g -jar $PICARDJARPATH/picard.jar CreateSequenceDictionary "
         "REFERENCE={input} "
         "OUTPUT={output}"
 __author__  = "Johannes Köster (http://johanneskoester.bitbucket.org)"
@@ -56,7 +56,7 @@ rule bwamem_map:
         temp("TEMP/{unit}.unit.bam")
     version: config['versions']['bwa']
     params:
-        batch="-c 32 --mem=60g --gres=lscratch:100 --time=24:00:00",
+        batch="-c 32 --mem=57g --gres=lscratch:100 --time=24:00:00",
         sample = lambda wildcards: UNIT_TO_SAMPLE[wildcards.unit],
         library = lambda wildcards: UNIT_TO_LIBRARY[wildcards.unit],
         platform = config.get("platform","Illumina"),
@@ -110,7 +110,7 @@ rule bwa_index_fasta:
     version: config['versions']['bwa']
     params: 
         rulename = "bwa_index_fasta",
-        batch=" --mem 61g --time=24:00:00",
+        batch=" --mem=57g --time=24:00:00",
         prefix=SERPENTINE_HOME + "/resources/mapping/bwaindex_" + config['versions']['bwa'] + "/{reference}"
     shell: "module load bwa/{version} && bwa index -p {params.prefix} {input} 2> {log}"
 ## novoalign
@@ -126,7 +126,7 @@ rule addrg:
     version: "1.129"
     params:
         rulename = "addrg",
-        batch ="-c 32 --mem=28g",
+        batch ="-c 32 --mem=27g",
         output_prefix = "TEMP/{unit}.novo",
         sample =lambda wildcards: UNIT_TO_SAMPLE[wildcards.unit],
         library=lambda wildcards: UNIT_TO_LIBRARY[wildcards.unit],
@@ -137,7 +137,7 @@ rule addrg:
     shell: """
 module load picard/{version}
 
-java -Xmx16g -jar $PICARDJARPATH/picard.jar AddOrReplaceReadGroups \
+java -Xmx27g -jar $PICARDJARPATH/picard.jar AddOrReplaceReadGroups \
 RGID={wildcards.unit} \
 RGLB={params.sample} \
 RGPL={params.platform} \
@@ -171,7 +171,7 @@ rule novoalign:
     version: config['versions']['novocraft']
     params:
         rulename = "novoalign",
-        batch ="-c 32 --mem=60g --time=1-12:00:00",
+        batch ="-c 32 --mem=57g --time=1-12:00:00",
         output_prefix = "TEMP/{unit}.novo"
     log: "TEMP/{unit}.novo.log"
     threads: 32
@@ -225,7 +225,7 @@ rule bamtdf:
         "{base}/bam/{sample}.final.bam.tdf"
     params: 
         rulename = "bamtdf",
-        batch="-c 32 --mem=28g",
+        batch="-c 32 --mem=27g",
         genome = config['reference'].replace("human_g1k_v37", "1kg_v37").replace("ucsc.hg19", "hg19")
     version: "2.3.31"
     log: "{base}/bam/{sample}.final.bam.tdf.log"
@@ -246,7 +246,7 @@ rule gatk_print_reads:
         bai="{base}/{sample}.final.bam.bai"
     params:
         rulename = "gatk_print_reads",
-        batch = "-c 32 --mem=28g --time=2-00:00:00 --gres=lscratch:100",
+        batch = "-c 32 --mem=27g --time=2-00:00:00 --gres=lscratch:100",
         tmpBai = "{base}/{sample}.final.bai"
     threads: 32
     version: config['versions']['GATK']
@@ -254,7 +254,7 @@ rule gatk_print_reads:
     shell: """
 module load GATK/{version}
 
-java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+java -Xmx27g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
 -T PrintReads \
 -nct {threads} \
 -I {input.bam} \
@@ -278,14 +278,14 @@ rule gatk_base_recalibrator:
         temp("TEMP/{sample}.recal_table")
     params:
         rulename = "gatk_base_recalibrator",
-        batch = "-c 32 --mem=28g --time=24:00:00 --gres=lscratch:100"
+        batch = "-c 32 --mem=27g --time=24:00:00 --gres=lscratch:100"
     threads: 32
     version: config['versions']['GATK']
     log: "TEMP/{sample}.recal_table.log"
     shell: """
 module load GATK/{version}
 
-java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+java -Xmx27g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
 -T BaseRecalibrator \
 -nct {threads} \
 -I {input.bam} \
@@ -314,7 +314,7 @@ rule gatk_realigner_target_creator:
         shell("""
 module load GATK/{version}
 
-java -Xmx31g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+java -Xmx16g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
 -T RealignerTargetCreator \
 -I {input.bam} \
 -R {input.reference} \
@@ -335,7 +335,7 @@ rule gatk_indel_realigner:
         temp("TEMP/{sample}.realigned.bam")
     params:
         rulename = "gatk_indel_realigner",
-        batch = "-c 32 --mem=28g --time=24:00:00 --gres=lscratch:100"
+        batch = "-c 32 --mem=27g --time=24:00:00 --gres=lscratch:100"
     threads: 32
     version: config['versions']['GATK']
     run:
@@ -343,7 +343,7 @@ rule gatk_indel_realigner:
         shell("""
 module load GATK/{version}
 
-java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+java -Xmx27g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
 -T IndelRealigner \
 -I {input.bam} \
 -R {input.reference} \
@@ -391,14 +391,14 @@ rule markdups:
             metrics=temp("TEMP/{sample}.final.bam.dupmetrics")
     params: 
         rulename = "markdups",
-        batch="-c 32 --mem=28g --gres=lscratch:100 --time=24:00:00",
+        batch="-c 32 --mem=27g --gres=lscratch:100 --time=24:00:00",
         qc_dir = lambda wildcards: "SUBJECT/{subject}/{sample}/{reference}.{aligner}/qc".format(subject=SAMPLE_TO_SUBJECT[wildcards.sample], sample=wildcards.sample,  reference=config['reference'], aligner=config['aligner'] )
     log: "TEMP/{sample}.md.bam.log"
     version: "1.119"
     shell: """
 module load picard/{version}
 
-java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $PICARDJARPATH/MarkDuplicates.jar \
+java -Xmx27g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $PICARDJARPATH/MarkDuplicates.jar \
 AS=true M={output.metrics} \
 O={output.bam} \
 I={input[0]} \
@@ -417,7 +417,7 @@ VALIDATION_STRINGENCY=SILENT \
 rule mergeBam2Sample:
     params:
         rulename = "mergeBam2Sample",
-        batch="-c 32 --mem=16g"
+        batch="-c 32 --mem=27g"
     input: lambda wildcards: expand("TEMP/{unit}.unit.bam", \
                              unit = SAMPLE_TO_UNIT[wildcards.sample])
     output:
@@ -426,7 +426,7 @@ rule mergeBam2Sample:
     threads: 32
     version: "1.129"
     run:
-        cmd = """module load picard/1.129 && java -Xmx31g -jar $PICARDJARPATH/picard.jar MergeSamFiles AS=true USE_THREADING=true VALIDATION_STRINGENCY=SILENT {0}""".format(' '.join(['I={0}'.format(i) for i in input]))
+        cmd = """module load picard/1.129 && java -Xmx27g -jar $PICARDJARPATH/picard.jar MergeSamFiles AS=true USE_THREADING=true VALIDATION_STRINGENCY=SILENT {0}""".format(' '.join(['I={0}'.format(i) for i in input]))
         cmd = cmd + " O={output} > {log} 2>&1"
         print(cmd)
         shell(cmd,shell=True)
@@ -514,7 +514,7 @@ rule DepthOfCoverage:
     output: "STUDY/" + config['reference'] + "." + config['aligner'] + "/qc/DepthOfCoverage"
     params: 
         rulename = "DepthOfCoverage",
-        batch="-c 32 --mem=28g --gres=lscratch:100 --time=2-00:00:00", 
+        batch="-c 32 --mem=27g --gres=lscratch:100 --time=2-00:00:00", 
         inBams=' '.join(["-I " + i for i in BAMS]),
         reference = config['references'][config['reference']],
         targets_interval_list = "/data/CCRBioinfo/public/serpentine_resources/design/enGene.cleaned.sorted.cds.hg19.merged.bed"
@@ -524,7 +524,7 @@ rule DepthOfCoverage:
     shell: """
 module load GATK/{version}
 
-java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+java -Xmx27g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
 -T DepthOfCoverage \
 -R {params.reference} \
 {params.inBams} \
@@ -541,7 +541,7 @@ rule DiagnoseTargets:
     threads: 32
     params: 
         rulename = "DiagnoseTargets",
-        batch="-c 32 --mem=60g --gres=lscratch:100 --time=2-00:00:00", 
+        batch="-c 32 --mem=57g --gres=lscratch:100 --time=2-00:00:00", 
         inBams=' '.join(["-I " + i for i in BAMS]),
         reference = config['references'][config['reference']],
         targets_interval_list = "/data/CCRBioinfo/public/serpentine_resources/design/enGene.cleaned.sorted.cds.hg19.merged.bed"
@@ -550,7 +550,7 @@ rule DiagnoseTargets:
     shell: """
 module load  GATK/{version}
 
-java -Xmx125g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+java -Xmx57g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
 -jar ${{GATK_HOME}}/GenomeAnalysisTK.jar \
 -T DiagnoseTargets \
 -R {params.reference} \
@@ -607,7 +607,7 @@ rule fastqc:
     output: "fastqc/{base}_fastqc.zip"
     params: 
         rulename = "fastqc",
-        batch = '-c 32 --mem=28g'
+        batch = '-c 32 --mem=27g'
     version: "0.11.2"
     log: "fastqc/log/{base}_fastqc.log"
     threads: 32
@@ -639,7 +639,7 @@ rule multiMetrics:
         shell("""
 module load picard/{version} R
 
-java -Xmx32g -jar $PICARDJARPATH/picard.jar CollectMultipleMetrics \
+java -Xmx16g -jar $PICARDJARPATH/picard.jar CollectMultipleMetrics \
 REFERENCE_SEQUENCE={input.reference} \
 VALIDATION_STRINGENCY=SILENT \
 INPUT={input.bam} \
@@ -681,7 +681,7 @@ rule bamTools:
         "{base}/qc/{sample}.final.bam.coverage"
     params:
         rulename = "bamTools",
-        batch="-c 32 --mem=28g",
+        batch="-c 32 --mem=27g",
         outDir="{base}/qc",
         target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]]
     log: "{base}/qc/{sample}.final.bam.coverage.log"
@@ -745,7 +745,7 @@ rule bamqc:
         "{base}/qc/bamqc/{sample}.final.bam.qualimapReport.html"
     params:
         rulename = "bamqc",
-        batch="-c 32 --mem=28g",
+        batch="-c 32 --mem=27g",
         outDir="{base}/qc/bamqc",
         target_intervals_gff=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]].replace('.bed', '.gff')
     log: "{base}/qc/bamqc/{sample}.final.bam.qualimapReport.log"
@@ -760,7 +760,7 @@ qualimap bamqc -c \
 -outdir {params.outDir} \
 -gff {params.target_intervals_gff} \
 -nt {threads} \
---java-mem-size=60G \
+--java-mem-size=27G \
 > {log} 2>&1
 
 if [ -f "{params.outDir}/qualimapReport.html" ]; then
@@ -811,7 +811,7 @@ rule hsMetrics:
     shell: """
 module load picard/{version}
 
-java -Xmx31g -jar $PICARDJARPATH/picard.jar CalculateHsMetrics \
+java -Xmx16g -jar $PICARDJARPATH/picard.jar CalculateHsMetrics \
 BAIT_INTERVALS={input.bam_probe_intervals} \
 TARGET_INTERVALS={input.bam_target_intervals} \
 INPUT={input.bam} \
@@ -895,7 +895,7 @@ rule pindel:
             "{base}/pindel/{sample}.pindel.raw_CloseEndMapped"]
     params: 
         rulename = "pindel",
-        batch="-c 32 --mem=28g --time=24:00:00", 
+        batch="-c 32 --mem=57g --time=24:00:00", 
         pindelBase="{base}/pindel/{sample}.pindel.raw",
         configPindel="{base}/pindel/{sample}.pindel.txt"
     log: "{base}/pindel/{sample}.pindel.raw.log"
@@ -930,7 +930,7 @@ rule pindel2vcf:
         "{base}/pindel/{sample}.pindel.raw.vcf"
     params: 
         rulename = "pindel2vcf",
-        batch="-c 16 --mem=28g",
+        batch="-c 16 --mem=27g",
         pindelBase="{base}/pindel/{sample}.pindel.raw",
         reference = config['reference']   
     log: "{base}/pindel/{sample}.pindel2vcf.log"
@@ -958,7 +958,7 @@ rule platypus:
     output: "{base}/platypus/{sample}.platypus.raw.vcf"
     params: 
         rulename = "platypus",
-        batch="-c 32 --mem=28g --gres=lscratch:4 --time=2-00:00:00",
+        batch="-c 32 --mem=27g --gres=lscratch:4 --time=2-00:00:00",
         target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]]
     threads: 32
     version: "0.8.1"
@@ -989,7 +989,7 @@ rule UnifiedGenotyper:
         "{base}/unifiedgenotyper/{sample}.unifiedgenotyper.raw.vcf"
     params: 
         rulename = "UnifiedGenotyper",
-        batch="-c 32 --mem=28g --gres=lscratch:100 --time=24:00:00",
+        batch="-c 32 --mem=27g --gres=lscratch:100 --time=24:00:00",
         dbsnp=config["resources"]["dbsnp"],
         target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]]
     log: "{base}/unifiedgenotyper/{sample}.unifiedgenotyper.raw.vcf.log"
@@ -1001,7 +1001,7 @@ gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{S
 
 module load GATK/{version}
 
-java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+java -Xmx27g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
 -nt {threads} \
 -rf BadCigar \
 -glm BOTH \
@@ -1026,7 +1026,7 @@ rule HaplotypeCaller:
         "{base}/haplotypecaller/{sample}.haplotypecaller.raw.vcf"
     params: 
         rulename = "HaplotypeCaller",
-        batch="-c 32 --mem=28g --gres=lscratch:100 --time=2-00:00:00",
+        batch="-c 32 --mem=27g --gres=lscratch:100 --time=2-00:00:00",
         dbsnp=config["resources"]["dbsnp"],
         target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]]
     log: "{base}/haplotypecaller/{sample}.haplotypecaller.raw.vcf.log"
@@ -1037,7 +1037,7 @@ rule HaplotypeCaller:
 gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.bed
 
 module load GATK/{version}
-java -Xmx61g -Djava.io.tmpdir=/lscratch/$SLURM_JOBID -jar $GATK_JAR \
+java -Xmx27g -Djava.io.tmpdir=/lscratch/$SLURM_JOBID -jar $GATK_JAR \
 -T HaplotypeCaller \
 -R {input.reference} \
 -I {input.bam} \
@@ -1058,7 +1058,7 @@ rule freebayes:
     output: "{base}/freebayes/{sample}.freebayes.raw.vcf"
     params: 
         rulename = "freebayes",
-        batch="-c 32 --mem=28g --gres=lscratch:4 --time=24:00:00",
+        batch="-c 32 --mem=27g --gres=lscratch:4 --time=24:00:00",
         target_intervals=lambda wildcards: config['target_intervals'][config['sample_captures'][wildcards.sample][0]]
     log: "{base}/freebayes/{sample}.freebayes.raw.vcf.log"
     version: "0.9.21"
@@ -1099,7 +1099,7 @@ rule MuTect:
         vcf="{anything}/mutect/{somaticPair}.mutect.raw.vcf"
     params: 
         rulename = "MuTect",
-        batch="-c 32 --mem=28g --gres=lscratch:100 --time=1-12:00:00",
+        batch="-c 32 --mem=27g --gres=lscratch:100 --time=1-12:00:00",
         dbsnp=config["resources"]["dbsnp"],
         cosmic=config["resources"]["cosmic"],
         target_intervals=lambda wildcards: config['target_intervals'][PairsCapture[wildcards.somaticPair]]
@@ -1112,7 +1112,7 @@ gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{S
 module load muTect/{version}
 
 muTect \
---memory 28g \
+--memory 27g \
 --tmpdir /lscratch/${{SLURM_JOBID}} \
 --analysis_type MuTect \
 --reference_sequence {input.reference} \
@@ -1138,7 +1138,7 @@ rule VarScan:
         indels="{anything}/varscan/{somaticPair}.varscan.indels.raw.vcf"
     params: 
         rulename = "VarScan",
-        batch="-c 32 --mem=28g --gres=lscratch:100 --time=24:00:00",
+        batch="-c 32 --mem=27g --gres=lscratch:100 --time=24:00:00",
         outBase="{anything}/varscan/{somaticPair}.varscan",
         target_intervals=lambda wildcards: config['target_intervals'][PairsCapture[wildcards.somaticPair]]
     log: "{anything}/varscan/{somaticPair}.varscan.log",
@@ -1147,7 +1147,7 @@ rule VarScan:
     shell: """
 module load samtools/0.1.19 varscan/{version}
 
-java -Xmx61g  -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar ${{VARSCANHOME}}/varscan.jar somatic \
+java -Xmx27g  -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar ${{VARSCANHOME}}/varscan.jar somatic \
 <( samtools mpileup -l {params.target_intervals} -q 2 -f {input.reference} {input[0]} ) \
 <( samtools mpileup -l {params.target_intervals} -q 2 -f {input.reference} {input[2]} ) \
 {params.outBase} --output-vcf -min-var-freq 0.05 \
@@ -1185,7 +1185,7 @@ rule strelka:
     log: "{anything}/strelka/{somaticPair}.strelka.snvs.raw.vcf.log"
     params: 
         rulename = "strelka",
-        batch="-c 32 --mem=28g --gres=lscratch:100 --time=24:00:00",
+        batch="-c 32 --mem=27g --gres=lscratch:100 --time=24:00:00",
         target_intervals=lambda wildcards: config['target_intervals'][PairsCapture[wildcards.somaticPair]]
     version: "1.0.14"
     threads: 32
@@ -1218,7 +1218,7 @@ rule UnifiedGenotyperM:
     output: "STUDY/" + config['reference'] + "." + config['aligner'] + "/variant/unifiedgenotyper_all.raw.vcf"
     params: 
         rulename = "UnifiedGenotyperM",
-        batch="-c 32 --mem=60g --gres=lscratch:100 --time=2-00:00:00", 
+        batch="-c 32 --mem=57g --gres=lscratch:100 --time=2-00:00:00", 
         inBams=' '.join(["-I " + i for i in BAMS]),
         dbsnp=config["resources"]["dbsnp"]
     log: "STUDY/" + config['reference'] + "." + config['aligner'] + "/variant/unifiedgenotyper_all.raw.vcf.log"
@@ -1227,7 +1227,7 @@ rule UnifiedGenotyperM:
     shell: """
 module load GATK/{version}
 
-java -Xmx125g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
+java -Xmx57g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar $GATK_JAR \
 -nt {threads} \
 -rf BadCigar \
 -glm BOTH \
@@ -1252,7 +1252,7 @@ rule freebayesM:
     output: "STUDY/" + config['reference'] + "." + config['aligner'] + "/variant/freebayes_all.raw.vcf"
     params: 
         rulename = "freebayesM",
-        batch="-c 32 --mem=60g --gres=lscratch:100 --time=24:00:00"
+        batch="-c 32 --mem=57g --gres=lscratch:100 --time=24:00:00"
     log: "STUDY/" + config['reference'] + "." + config['aligner'] + "/variant/freebayes_all.raw.vcf.log"
     version: "0.9.21"
     run:
@@ -1279,7 +1279,7 @@ rule platypusS:
         "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.platypus.raw.vcf"
     params: 
         rulename = "platypusS",
-        batch="-c 32 --mem=60g --gres=lscratch:4 --time=24:00:00",
+        batch="-c 32 --mem=57g --gres=lscratch:4 --time=24:00:00",
         target_intervals=lambda wildcards: config['target_intervals'][wildcards.capture]
     threads: 32
     version: "0.8.1"
@@ -1312,7 +1312,7 @@ rule HaplotypeCallerS:
         "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.haplotypecaller.raw.vcf"
     params: 
         rulename = "HaplotypeCallerS",
-        batch="-c 32 --mem=28g --gres=lscratch:100 --time=24:00:00",
+        batch="-c 32 --mem=27g --gres=lscratch:100 --time=24:00:00",
         dbsnp=config["resources"]["dbsnp"],
         target_intervals=lambda wildcards: config['target_intervals'][wildcards.capture]
     log:  "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.haplotypecaller.raw.vcf.log"
@@ -1325,7 +1325,7 @@ module load GATK/{version}
 ## convert to 0-based coordinates
 gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.bed
 
-java -Xmx31g -Djava.io.tmpdir=/lscratch/$SLURM_JOBID -jar $GATK_JAR \
+java -Xmx27g -Djava.io.tmpdir=/lscratch/$SLURM_JOBID -jar $GATK_JAR \
 -T HaplotypeCaller \
 -R {input.reference} \
 {bamFiles} \
@@ -1347,7 +1347,7 @@ rule UnifiedGenotyperS:
         "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.unifiedgenotyper.raw.vcf"
     params: 
         rulename = "UnifiedGenotyperS",
-        batch="-c 8 --mem=28g --gres=lscratch:100 --time=24:00:00",
+        batch="-c 8 --mem=27g --gres=lscratch:100 --time=24:00:00",
         dbsnp=config["resources"]["dbsnp"],
         target_intervals=lambda wildcards: config['target_intervals'][wildcards.capture]
     log:  "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.unifiedgenotyper.raw.vcf.log"
@@ -1360,7 +1360,7 @@ module load GATK/{version}
 ## convert to 0-based coordinates
 gawk '{{print $1 "\t" $2-1 "\t" $3}}' {params.target_intervals} > /lscratch/${{SLURM_JOBID}}/target_intervals.bed
 
-java -Xmx61g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar ${{GATK_JAR}} \
+java -Xmx27g -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar ${{GATK_JAR}} \
 -nt {threads} \
 -rf BadCigar \
 -glm BOTH \
@@ -1386,7 +1386,7 @@ rule freebayesS:
         "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.freebayes.raw.vcf"
     params: 
         rulename = "freebayesS",
-        batch="-c 32 --mem=60g --gres=lscratch:4 --time=24:00:00",
+        batch="-c 32 --mem=57g --gres=lscratch:4 --time=24:00:00",
         target_intervals=lambda wildcards: config['target_intervals'][wildcards.capture]
     log:  "SUBJECT/{subject}/" + config['reference'] + "." +config['aligner'] + "/{subject}_{capture}.freebayes.log"
     version: "0.9.21"
@@ -1426,7 +1426,7 @@ rule snpEff:
         "{base}.annotated.vcf"
     params: 
         rulename = "snpEff",
-        batch="-c 32 --mem=28g --gres=lscratch:100 --time=24:00:00",
+        batch="-c 32 --mem=27g --gres=lscratch:100 --time=24:00:00",
         snpEff_genome=config["snpEff_genome"],
         snpEff_config=config["snpEff_config"],
         CosmicCodingMuts=config["resources"]['CosmicCodingMuts'],
@@ -1439,14 +1439,14 @@ rule snpEff:
     shell: """
 module load snpEff/{version}
 
-java -Xmx61g  -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar ${{SNPEFFHOME}}/SnpSift.jar \
+java -Xmx27g  -Djava.io.tmpdir=/lscratch/${{SLURM_JOBID}} -jar ${{SNPEFFHOME}}/SnpSift.jar \
 dbnsfp \
 -c {params.snpEff_config} \
 -a {input.vcf} \
-| java -Xmx4g -jar ${{SNPEFFHOME}}/SnpSift.jar annotate {params.CosmicCodingMuts} - \
-| java -Xmx4g -jar ${{SNPEFFHOME}}/SnpSift.jar annotate {params.dbsnp} - \
-| java -Xmx4g -jar ${{SNPEFFHOME}}/SnpSift.jar annotate {params.clinvar} - \
-| java -Xmx12g -jar ${{SNPEFFHOME}}/snpEff.jar \
+| java -Xmx5g -jar ${{SNPEFFHOME}}/SnpSift.jar annotate {params.CosmicCodingMuts} - \
+| java -Xmx5g -jar ${{SNPEFFHOME}}/SnpSift.jar annotate {params.dbsnp} - \
+| java -Xmx5g -jar ${{SNPEFFHOME}}/SnpSift.jar annotate {params.clinvar} - \
+| java -Xmx5g -jar ${{SNPEFFHOME}}/snpEff.jar \
 -t \
 -canon {params.snpEff_genome} > {output} \
 2> {log}
@@ -1504,7 +1504,7 @@ rule ngCGH:
         "{anything}/ngcgh/{somaticPair}.nexus"
     params: 
         rulename = "ngCGH",
-        batch="-c 32 --mem=28g"
+        batch="-c 32 --mem=27g"
     version: "0.0.0"
     log: "{anything}/ngcgh/{somaticPair}.cgh.log"
     threads: 32
@@ -1529,7 +1529,7 @@ rule mpileup:
         "{base}/genotyping/{sample}.gt"
     params: 
         rulename = "mpileup",
-        batch="-c 32 --mem=28g",
+        batch="-c 32 --mem=27g",
         genotyping_sites=config['genotyping_sites']
     threads: 32
     version: "0.1.19"
