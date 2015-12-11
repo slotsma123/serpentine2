@@ -66,20 +66,21 @@ rule bwamem_map:
     log: "TEMP/{unit}.unit.log"
     threads: 32
     shell: """
-## no this module in b2
-# module load ea-utils/r822
+module load ea-utils/r822
 
 R1=/lscratch/${{SLURM_JOBID}}/`basename {input.fastq[0]}`
 R2=/lscratch/${{SLURM_JOBID}}/`basename {input.fastq[1]}`
 mcf_log=/lscratch/${{SLURM_JOBID}}/`basename {input.fastq[0]}`.mcf.log
 
-/data/CCRBioinfo/zhujack/source/ea-utils.1.1.2-686/fastq-mcf -C 1000000 -q 2 -p 10 -u -x 20 -o $R1 -o $R2 /home/zhujack/bin/adapters.fa <(gunzip -c {input.fastq[0]}) <(gunzip -c {input.fastq[1]}) > $mcf_log 2>&1
+fastq-mcf -C 1000000 -q 2 -p 10 -u -x 20 -o $R1 -o $R2 /data/Clinomics/Tools/serpentine2/scripts/adapters.fa <(gunzip -c {input.fastq[0]}) <(gunzip -c {input.fastq[1]}) > $mcf_log 2>&1
 
 module load fastqc
 fastqc -t {threads} $R1
 fastqc -t {threads} $R2
 
 module load bwa/{version}
+module load samtools
+
 bwa mem -M \
 -R '@RG\tID:{wildcards.unit}\tSM:{params.sample}\tLB:{params.library}\tPL:{params.platform}' \
 -t {threads} {params.bwa_index} $R1 $R2 2> {log} \
@@ -1196,7 +1197,7 @@ configureStrelkaWorkflow.pl \
 --normal={input[0]} \
 --tumor={input[2]} \
 --ref={input.reference} \
---config=/data/CCRBioinfo/zhujack/snake/config.ini \
+--config=/data/Clinomics/Tools/serpentine2/scripts/config.ini \
 --output-dir=/lscratch/${{SLURM_JOBID}}/strelka \
 > {log} 2>&1
 
@@ -1535,22 +1536,19 @@ rule mpileup:
     version: "0.1.19"
     log: "Genotyping/log/{sample}.gt.log"
     shell: """
-module load samtools/{version}
+        module load samtools/{version}
 
-samtools mpileup -u -C50 \
--f {input.reference} \
--l {params.genotyping_sites} \
-{input.bam} \
-| bcftools view -gc - \
-| /data/Clinomics/Tools/Genotyping/vcf2genotype.pl - \
-> {output} \
-2> {log}
+        samtools mpileup -u -C50 \
+        -f {input.reference} \
+        -l {params.genotyping_sites} \
+        {input.bam} \
+        | bcftools view -gc - \
+        | /data/Clinomics/Tools/Genotyping/vcf2genotype.pl - \
+        > {output} \
+        2> {log}
 
-cp -f {output} Genotyping/GenotypeFiles/
-
-chmod 664 Genotyping/GenotypeFiles/`basename {output}`
-
-"""  
+        cp -f {output} Genotyping/GenotypeFiles/
+        """  
 
 
 rule genotyping:
@@ -1563,7 +1561,7 @@ rule genotyping:
 cd Genotyping/
 sh /data/Clinomics/Tools/Genotyping/genotype.sh
 touch `basename {output}`
-chmod 664 * 2> /dev/null
+chmod 770 * 2> /dev/null
 
 """
 

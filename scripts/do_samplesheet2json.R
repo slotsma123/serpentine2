@@ -29,7 +29,9 @@ if ( opt$verbose ) {
     write("The fun gets started...\n", stderr()) 
 }
 
-s = as.matrix(read.delim(opt$sampleSheetFile, as.is=T, comment.char = "#"))
+df = read.delim(opt$sampleSheetFile, as.is=TRUE, strip.white=TRUE, comment.char = "#")
+## remove all padded leading spaces when doing matrix conversion
+s = as.matrix(data.frame(lapply(df,as.character)))
 
 # colnames(s)
 #  [1] "result_id"    "run_id"       "run_date"     "SampleName"   "source"
